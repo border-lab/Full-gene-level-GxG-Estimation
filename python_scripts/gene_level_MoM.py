@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 #===============  Core method   ===============#
 def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
@@ -114,6 +115,25 @@ def MoM_only_M(Z, y, nmc=40):
     return x1[0], x1[1], A 
 
 
+def run_experiment_MC(X, n_mc=100, s2gxg=0.9, s2e=0.1):
+    """
+    Run Monte Carlo simulations to estimate GxG and residual variance components.
+    X: (n, m) raw genotype data
+    n_mc: number of Monte Carlo replicates
+    """
+    gxgs = []
+    es = []
+    
+    for _ in range(n_mc):
+        Z, y = simulate_from_raw_only_W(X, s2gxg=s2gxg, s2e=s2e)
+        gxg, e, _ = MoM_only_M(Z, y, nmc=40)
+        gxgs.append(gxg)
+        es.append(e)
+    
+    gxgs = np.array(gxgs).flatten()
+    es = np.array(es).flatten()
+    
+    return pd.DataFrame({"gxgs": gxgs, "es": es})
 
 
 

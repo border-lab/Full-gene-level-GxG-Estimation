@@ -18,7 +18,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     data_list = []
 
     for N, df in zip(sample_sizes, dfs):
-        col_values = np.array(df[col_num]) - real_value
+        col_values = df.iloc[:, col_num].values - real_value
         data_list.append(
             pd.DataFrame({"value": col_values, "N": N})
         )
