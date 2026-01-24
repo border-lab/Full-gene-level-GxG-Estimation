@@ -1,6 +1,6 @@
 # Test Data
 
-This directory contains test datasets for the gene-level GxG estimation experiments and the code for how it generated.
+This directory contains test datasets for the gene-level GxG estimation experiments and the code used to generate them.
 
 ## Files
 
@@ -26,7 +26,7 @@ This directory contains test datasets for the gene-level GxG estimation experime
 
 ## Usage
 
-Extract the zip files before running the experiment:
+Extract the zip files before running the experiments:
 
 ```bash
 unzip chr1_Contiguous1KSNP.zip
