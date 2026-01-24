@@ -1,4 +1,4 @@
-# Scripts
+# Python Scripts
 
 This file contains the core Python modules for gene-level GxG (gene-gene interaction) estimation.
 
@@ -41,7 +41,7 @@ visualization part.
 ## How to use
 
 ```python
-from Scripts.gene_level_MoM import *
-from Scripts.weight_function import *
-from Scripts.pairwise_product_var_calculation import *
-from Scripts.visualization import *
+from python_scripts.gene_level_MoM import * 
+from python_scripts.pairwise_product_var_calculation import * 
+from python_scripts.visualization import * 
+from python_scripts.weight_function import * 
