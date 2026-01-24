@@ -38,7 +38,7 @@ visualization part.
 | `plot_relative_error_accross_sample_size` | Plot relative estimation error across different sample sizes |
 | `plot_var_pairwise_products_against_ld` | Scatter plot of pairwise product variance against LD (r) values |
 
-## Usage
+## How to use
 
 ```python
 from Scripts.gene_level_MoM import *

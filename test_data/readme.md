@@ -14,13 +14,13 @@ This directory contains test datasets for the gene-level GxG estimation experime
 | `chr1_Contiguous1KSNP_LDpruned_09.zip` | Contiguous SNPs after LD pruning (r² threshold = 0.9) |
 
 
-### Scripts
+### SH Scripts
 
 | File | Description |
 |------|-------------|
 | `process_code.sh` | Shell script for processing and preparing the test data |
 
-## Usage
+## How to use
 
 Extract the zip files before running the experiments:
 
