@@ -18,7 +18,7 @@ plink --bfile chr1_sub1000 --recode A --out chr1_sub1000
 ##### perform LD pruning with a threshold of R2 > 0.8
 plink \
   --bfile chr1_block1000 \
-  --indep-pairwise 50 5 0.8 \
+  --indep-pairwise 1000 5 0.8 \
   --out snps_to_keep_08
 
 plink \
@@ -35,7 +35,7 @@ plink \
 ##### perform LD pruning with a threshold of R2 > 0.9
 plink \
   --bfile chr1_block1000 \
-  --indep-pairwise 50 5 0.9 \
+  --indep-pairwise 1000 5 0.9 \
   --out snps_to_keep_09
 
 plink \
