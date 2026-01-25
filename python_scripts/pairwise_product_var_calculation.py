@@ -1,10 +1,15 @@
 import numpy as np
 
 def calculate_varXiXj(X):
-
-    """Calculate the pairwise product variance for each pair of SNPs in raw matrix X."""
-    """X: 2D numpy array of shape (n, m) with genotype data coded as 0, 1, 2."""
+    """
+    Calculate the pairwise product variance for each pair of SNPs in genotype matrix X.
     
+    parameters:
+    X: 2D numpy array of shape (n, m) with genotype data coded as 0, 1, 2.
+
+    returns:
+    A 1D numpy array containing the pairwise product variances for each SNP pair (i < j).
+    """
     n, m = X.shape
 
     # Calculate AF and Covariance Matrix
@@ -32,10 +37,15 @@ def calculate_varXiXj(X):
 
 
 def calculate_varZiZj(X):
+    """
+    Calculate the pairwise product variance for each pair of SNPs in Standardlized matrix Z using X.
 
-    """Calculate the pairwise product variance for each pair of SNPs in Standardlized matrix Z using X."""
-    """X: 2D numpy array of shape (n, m) with genotype data coded as 0, 1, 2."""
-    
+    parameters:
+    X: 2D numpy array of shape (n, m) with genotype data coded as 0, 1, 2.
+
+    returns:
+    A 1D numpy array containing the pairwise product variances for each SNP pair (i < j).
+    """
     n, m = X.shape
 
     # Calculate AF and Covariance Matrix

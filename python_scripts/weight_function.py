@@ -15,10 +15,10 @@ def weight_vector(X):
     for all pairs (i, j), where Z_i is the standardized genotype at SNP i.
 
     Parameters:
-        X: (n, m) genotype matrix with n samples and m SNPs (values in {0, 1, 2})
+    X: (n, m) genotype matrix with n samples and m SNPs (values in {0, 1, 2})
 
     Returns:
-        w: (m,) weight vector where w_i = exp(u_hat_i)
+    w: (m,) weight vector where w_i = exp(u_hat_i)
     """
     n, m = X.shape
 
@@ -68,15 +68,15 @@ def check_weighted_products(Z, w, min_dist=1):
     for distant pairs.
 
     Parameters:
-        Z: (n, p) genotype matrix with n samples and p SNPs
-        w: (n,) weight vector for each sample
-        min_dist: minimum distance between SNP indices to be considered "distant"
+    Z : (n, p) genotype matrix with n samples and p SNPs
+    w: (n,) weight vector for each sample
+    min_dist: minimum distance between SNP indices to be considered "distant"
 
     Returns:
-        var_matrix: (p, p) symmetric matrix where entry (i,j) is the variance of
+    var_matrix: (p, p) symmetric matrix where entry (i,j) is the variance of
                     the elementwise product (Z[:,i]*w) * (Z[:,j]*w) across samples
-        distant_vars: 1D array of variances for SNP pairs with index distance >= min_dist
-        stats: dict with mean, std, and count of distant pair variances
+    distant_vars: 1D array of variances for SNP pairs with index distance >= min_dist
+    stats: dict with mean, std, and count of distant pair variances
     """
     n, p = Z.shape
     Zw = Z * w  # Weight each column of Z by the sample weights

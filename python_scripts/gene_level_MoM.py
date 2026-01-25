@@ -7,13 +7,13 @@ def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
     Simulate phenotype y from real genotype data using only the GxG interaction kernel W.
     
     Parameters:
-        real_data: (n, m) array of raw genotype data (n samples, m SNPs)
-        s2gxg: variance component for GxG epistatic interactions (default 0.9)
-        s2e: residual/environmental variance component (default 0.1)
+    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
+    s2gxg: variance component for GxG epistatic interactions (default 0.9)
+    s2e: residual/environmental variance component (default 0.1)
     
     Returns:
-        Z: (n, m) standardized genotype matrix
-        y: (n,) simulated phenotype vector (centered)
+    Z: (n, m) standardized genotype matrix
+    y: (n,) simulated phenotype vector (centered)
     """
     # Standardize genotype data (zero mean, unit variance per SNP)
     Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
@@ -47,14 +47,14 @@ def MoM_only_M(Z, y, nmc=40):
     Method of Moments estimator for GxG variance component using only the epistatic kernel.
 
     Parameters:
-        Z: (n, m) standardized genotype matrix
-        y: (n,) phenotype vector
-        nmc: number of Monte Carlo samples for trace estimation
+    Z: (n, m) standardized genotype matrix
+    y: (n,) phenotype vector
+     nmc: number of Monte Carlo samples for trace estimation
     
     Returns:
-        s2gxg: estimated GxG variance component
-        s2e: estimated residual variance component
-        A: 2x2 coefficient matrix from the moment equations
+    s2gxg: estimated GxG variance component
+    s2e: estimated residual variance component
+    A: 2x2 coefficient matrix from the moment equations
     """
     n = Z.shape[0]
     m = Z.shape[1]
@@ -118,8 +118,15 @@ def MoM_only_M(Z, y, nmc=40):
 def run_experiment_MC(X, n_mc=100, s2gxg=0.9, s2e=0.1):
     """
     Run Monte Carlo simulations to estimate GxG and residual variance components.
+    
+    parameters:
     X: (n, m) raw genotype data
     n_mc: number of Monte Carlo replicates
+    s2gxg: true GxG variance component
+    s2e: true residual variance component   
+
+    returns:
+    DataFrame with estimated GxG and residual variance components across replicates.
     """
     gxgs = []
     es = []

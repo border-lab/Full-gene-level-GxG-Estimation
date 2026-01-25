@@ -6,13 +6,18 @@ import os
 
 
 def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, save_path=None):
+    """
+    Plot relative errors with error bars (sorted by numeric sample size).
+    parameters:
+    dfs: list of DataFrames containing estimation results at different sample sizes
+    basic_individual: base sample size to compute actual sample sizes
+    col_num: column number in DataFrames to plot (0 for s2gxg, 1 for s2e)
+    real_value: the true value of the parameter being estimated
+    save_path: optional path to save the plot image
 
-    """Plot relative errors with error bars (sorted by numeric sample size)."""
-    """Accept multiple dataframes corresponding to different sample sizes"""
-    """basic_individual: the base individual size (e.g., 1000)"""
-    """col_num: column index to plot (generally 0 for s2gxg, 1 for s2e)"""
-    """real_value: the true value of the parameter being estimated"""
-
+    returns:
+    A plot showing relative errors across different sample sizes with error bars.
+    """
     # Gather data 
     sample_sizes = [basic_individual * (2 ** i) for i in range(len(dfs))]  
     data_list = []
@@ -91,10 +96,17 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
 
 def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
     
-    """Plot variance of pairwise products against LD (r). """
-    """var: 1D array of variances of pairwise products"""
-    """ld: 1D array of LD (r) values corresponding to each variance"""
-    """q: quantile threshold to remove outliers (e.g., 0.999 removes top 0.1% of variances)"""
+    """
+    Plot variance of pairwise products against LD (r).
+    parameters:
+    var: 1D array of variances of pairwise products
+    ld: 1D array of LD (r) values corresponding to the variances
+    q: quantile threshold to remove outliers (e.g., 0.999 removes top 0.1% of variances)
+    save_path: optional path to save the plot image
+
+    returns:
+    A scatter plot of variance of pairwise products vs LD (r) with outliers removed
+    """
 
     var = np.asarray(var)
     ld = np.asarray(ld)
@@ -133,11 +145,18 @@ def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
 
 
 def plot_distribution_varzizj(varZiZj_array, start, end, num_bin):
-    """Plot the distribution of Var(ZiZj) within a specified range."""
+    """
+    Plot the distribution of Var(ZiZj) within a specified range.
 
-    """varZiZj_array： 1D array of Var(ZiZj) values"""
-    """start, end 1D: range for x-axis"""
-    """num_bin: number of bins in the histogram"""
+    parameters:
+    varZiZj_array: 1D array of Var(ZiZj) values
+    start: start of the range to plot
+    end: end of the range to plot
+    num_bin: number of bins in the histogram"
+
+    returns:
+    A histogram plot showing the distribution of Var(ZiZj) within the specified range.
+    """
     plt.figure(figsize=(10, 6))
     # Histogram
     plt.hist(varZiZj_array, 
