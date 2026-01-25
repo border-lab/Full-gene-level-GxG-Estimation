@@ -129,3 +129,30 @@ def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
         print(f"Plot saved to: {save_path}")
 
     plt.show()
+
+
+
+def plot_distribution_varzizj(varZiZj_array, start, end, num_bin):
+    """Plot the distribution of Var(ZiZj) within a specified range."""
+
+    """varZiZj_array： 1D array of Var(ZiZj) values"""
+    """start, end 1D: range for x-axis"""
+    """num_bin: number of bins in the histogram"""
+    plt.figure(figsize=(10, 6))
+    # Histogram
+    plt.hist(varZiZj_array, 
+             bins=num_bin, 
+             range=(start, end), 
+             color='blue', 
+             edgecolor='white', 
+             alpha=0.6)
+  
+    plt.xlim(start, end)
+  
+    plt.title(fr'Distribution of $Var(Z_i Z_j)$ in range [{start}, {end}]', fontsize=15)
+    plt.xlabel(r'Variance of ($Var(Z_i Z_j)$)', fontsize=12)
+    plt.ylabel('Percentage (%)', fontsize=12) 
+  
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.show()
