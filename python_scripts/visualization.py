@@ -121,7 +121,7 @@ def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
         ld[mask],
         var[mask],
         s=0.5,           
-        alpha=0.3,      
+        alpha=0.2,      
         edgecolors='none'
     )
     plt.xlabel("LD (r)", fontsize=13)

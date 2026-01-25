@@ -17,34 +17,34 @@ plink --bfile chr1_sub1000 --recode A --out chr1_sub1000
 
 ##### perform LD pruning with a threshold of R2 > 0.8
 plink \
-  --bfile chr1_sub1000 \
+  --bfile chr1_block1000 \
   --indep-pairwise 50 5 0.8 \
   --out snps_to_keep_08
 
 plink \
-  --bfile chr1_sub1000 \
+  --bfile chr1_block1000 \
   --extract snps_to_keep_08.prune.in \
   --make-bed \
-  --out chr1_sub1000_pruned_08
+  --out chr1_block1000_pruned_08
 
 plink \
-  --bfile chr1_sub1000_pruned_08 \
+  --bfile chr1_block1000_pruned_08 \
   --recode A \
-  --out chr1_sub1000_pruned_08
+  --out chr1_block1000_pruned_08
 
 ##### perform LD pruning with a threshold of R2 > 0.9
 plink \
-  --bfile chr1_sub1000 \
+  --bfile chr1_block1000 \
   --indep-pairwise 50 5 0.9 \
   --out snps_to_keep_09
 
 plink \
-  --bfile chr1_sub1000 \
+  --bfile chr1_block1000 \
   --extract snps_to_keep_09.prune.in \
   --make-bed \
-  --out chr1_sub1000_pruned_09
+  --out chr1_block1000_pruned_09
 
 plink \
-  --bfile chr1_sub1000_pruned_09 \
+  --bfile chr1_block1000_pruned_09 \
   --recode A \
-  --out chr1_sub1000_pruned_09
+  --out chr1_block1000_pruned_09
