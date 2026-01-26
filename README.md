@@ -48,4 +48,11 @@ See the `readme.md` in each subdirectory for detailed documentation.
 # Clone the repository
 git clone https://github.com/ZiyanZhang7315/Full-gene-level-GxG-Estimation.git
 
-cd Full-gene-level-GxG-Estimation
+```
+## How to use 
+```bash
+# cd to the dir of Experiments
+cd Full-gene-level-GxG-Estimation/Experiments
+```
+
+Go to the direction of Experiments, there will be jupyter notebook about how to run simulation and introduction
