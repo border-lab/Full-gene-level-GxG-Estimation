@@ -1,6 +1,6 @@
 # Full-gene-level-GxG-Estimation
 
-A Method of Moments (MoM) approach for estimating gene-level gene-by-gene (GxG) interaction variance components from GWAS data.
+A Stochastic Method of Moments (MoM) approach for estimating gene-level epistatic (GxG) variance components.
 
 ## Overview
 
@@ -10,7 +10,7 @@ This project implements statistical methods to estimate the contribution of epis
 
 ### Variance Decomposition
 
-Phenotypic variance is decomposed into:Var(y) = σ²_gxg × W + σ²_e × I
+Phenotypic variance is decomposed into: $Var(y) = \sigma^2_{g \times g} \times W + \sigma^2_e \times I$
 
 Where:
 - **σ²_gxg**: GxG epistatic variance component (target parameter)
@@ -24,7 +24,7 @@ The interaction kernel W captures pairwise epistatic effects:
 W = 0.5 × (K⊙K - D@Dᵀ) / p
 
 
-Where K = ZZᵀ is the linear kernel, D = Z⊙Z (element-wise square), and p is the number of SNP pairs.
+Where K = ZZᵀ is the linear kernel, D = Z⊙Z (element-wise square), and p is the number of interaction pairs.
 
 ### Method of Moments Estimation
 
