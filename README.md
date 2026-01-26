@@ -31,13 +31,13 @@ Where $K = ZZ^T$ is the linear kernel, $D = Z \circ Z $(element-wise square), an
 
 This project has three parts:
 
-### python_scripts/
+### python_scripts
 Core Python modules implementing the MoM estimator and supporting utilities.
 
-### test_data/
+### test_data
 Genomic datasets used for validation experiments.
 
-### Experiments/
+### Experiments
 Jupyter notebooks for validating the MoM estimator and perform other analysis.
 
 See the `readme.md` in each subdirectory for detailed documentation.
