@@ -48,3 +48,38 @@ plink \
   --bfile chr1_block1000_pruned_09 \
   --recode A \
   --out chr1_block1000_pruned_09
+
+
+ ##### perform LD pruning for 3500 SNP with a threshold of R2 > 0.9
+plink \
+  --bfile chr1_block3500 \
+  --indep-pairwise 3500 5 0.9 \
+  --out 3500snps_to_keep_09
+plink \
+  --bfile chr1_block3500 \
+  --extract 3500snps_to_keep_09.prune.in \
+  --make-bed \
+  --out chr1_block3500_pruned_09
+
+plink \
+  --bfile chr1_block3500_pruned_09 \
+  --recode A \
+  --out chr1_block3500_pruned_09
+
+
+  ##### perform LD pruning for 10K SNP with a threshold of R2 > 0.5
+plink \
+  --bfile chr1_block10000 \
+  --indep-pairwise 10000 5 0.5 \
+  --out 10ksnps_to_keep_05
+
+plink \
+  --bfile chr1_block10000 \
+  --extract 10ksnps_to_keep_05.prune.in \
+  --make-bed \
+  --out chr1_block1000_pruned_05
+
+plink \
+  --bfile chr1_block1000_pruned_05 \
+  --recode A \
+  --out chr1_block1000_pruned_05
