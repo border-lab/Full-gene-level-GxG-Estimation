@@ -77,9 +77,17 @@ plink \
   --bfile chr1_block10000 \
   --extract 10ksnps_to_keep_05.prune.in \
   --make-bed \
-  --out chr1_block1000_pruned_05
+  --out chr1_block10000_pruned_05
 
 plink \
-  --bfile chr1_block1000_pruned_05 \
+  --bfile chr1_block10000_pruned_05 \
   --recode A \
-  --out chr1_block1000_pruned_05
+  --out chr1_block10000_pruned_05
+
+##### filter SNPs with MAF < 0.05
+plink --bfile chr1_block10000_pruned_05 --maf 0.05 --make-bed --out chr1_block10000_pruned_05_maf005
+
+plink \
+  --bfile chr1_block10000_pruned_05_maf005 \
+  --recode A \
+  --out chr1_block10000_pruned_05_maf005
