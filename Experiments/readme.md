@@ -21,15 +21,19 @@ Investigates the challenges of GxG estimation when using contiguous (neighboring
 - **Experiment 1**: Analysis of pairwise product variance relationships
 - **Experiment 2**: Distribution analysis of Var(ZiZj) for standardized genotypes
 - **Experiment 3**: Correlation between variance and LD strength
-- **Experiment 4**: Evaluation of LD-pruning strategies
-- **Experiment 5**: Impact of removing highly correlated SNP pairs(around 300, original 1k)
-- **Experiment 6**: same setting with Experiment 5 but with increased SNP size to around 1k
+- **Experiment 4**: Evaluation of LD-pruning strategies (r^2 > 0.9, 294 SNPs remain from 1000)
+- **Experiment 5**: Impact of removing highly correlated SNP pairs (around 300, original 1k)
+- **Experiment 6**: Same setting as Experiment 5 but with increased SNP size to around 1k
+- **Experiment 7**: LD pruning with stricter threshold (r^2 > 0.5, ~900 SNPs remaining from 10k)
+- **Experiment 8**: Combined filtering with MAF > 0.05 and LD pruning (r^2 > 0.5, ~300 SNPs remaining from 10k)
 
 ---
 
 ### 3. simulation_weight.ipynb
 
 Explores weight optimization strategies to reduce variance in GxG estimates.
+
+To be continue
 
 ---
 
