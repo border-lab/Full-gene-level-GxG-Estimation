@@ -43,13 +43,14 @@ def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
     return Z, y
 
 
-def simulate_W_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
+def simulate_Cholesky_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
     """
     Compute the GxG interaction kernel W from raw genotype data.
     Parameters:
     real_data: (n, m) array of raw genotype data (n samples, m SNPs)
     Returns:
-    W: (n, n) GxG interaction kernel matrix
+    Lgxg: Cholesky factor of the GxG covariance component   
+    Le: Cholesky factor of the residual covariance component
     """
 
     Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
