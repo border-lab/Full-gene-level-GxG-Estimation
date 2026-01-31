@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from scipy.linalg import cholesky
 
 #===============  Core method   ===============#
 def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
@@ -43,43 +42,34 @@ def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
     return Z, y
 
 
-def simulate_W_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
-    """
-    Compute the GxG interaction kernel W from raw genotype data.
-    Parameters:
-    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
-    Returns:
-    W: (n, n) GxG interaction kernel matrix
-    """
+def simulate_W_from_raw(real_data):
+    Z_stand = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    n, m = Z_stand.shape
 
-    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
-    n,m = Z.shape
+    p = m*(m-1)/2
+    origin_var =var_XiXj(Z_stand)
+    s = (origin_var/p) ** 0.25
+    Z = Z_stand/s
 
     KZ = Z @ Z.T
     D = Z*Z
     p = m*(m-1)/2
     W = 0.5*(KZ*KZ - D@D.T)/p
+    return  W
+
+
+def cholesky_gxg_and_e(W, s2gxg=0.9,s2e=0.1,stability=1e-8):
+
+    n = W.shape[0]
     Lgxg = cholesky(s2gxg * W + stability* np.eye(n), lower=True)
     Le = cholesky(s2e * np.eye(n), lower=True)
-    return  Lgxg, Le 
+    return Lgxg, Le 
 
 
-def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9, s2e=0.1):
-    """
-    Simulate phenotype y from real genotype data using precomputed GxG interaction kernel W and removing sampling errors.
-    Parameters:
-    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
-    Lgxg: Cholesky factor of the GxG covariance component   
-    Le: Cholesky factor of the residual covariance component
-    s2gxg: variance component for GxG epistatic interactions (default 0.9)
-    s2e: residual/environmental variance component (default 0.1)
-    Returns:
-    Z: (n, m) standardized genotype matrix
-    y: (n,) simulated phenotype vector (centered)
-    """
+def simulate_from_raw_only_W_nosampling(real_data, Lgxg, Le, s2gxg=0.9, s2e=0.1):
 
-    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
-    n, m = Z.shape
+    Z_stand = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    n, m = Z_stand.shape
 
     u1 = np.random.randn(n)
     u2 = np.random.randn(n)
@@ -87,7 +77,7 @@ def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9,
     gxg = Lgxg @ u1
     e = Le @ u2  
 
-    # eliminate the sampling variances
+    # eliminate the sampling variance
     cur_var_gxg = np.var(gxg, ddof=0)                 
     scale_g   = np.sqrt(s2gxg / cur_var_gxg)           
     gxg     = gxg * scale_g
@@ -99,7 +89,7 @@ def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9,
     y = gxg + e
     y -= y.mean()
 
-    return  Z, y
+    return  Z_stand, y
 
 
 
