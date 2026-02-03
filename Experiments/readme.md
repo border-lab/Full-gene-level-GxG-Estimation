@@ -22,7 +22,7 @@ Investigates the challenges of GxG estimation when using contiguous (neighboring
 
 - **Experiment 2**: Compare the overall distribution of pairwise product variance Var$(Z_i Z_j)$ between contiguous and random SNPs to understand why the MoM estimator produces biased results with contiguous SNPs
 
-- **Experiment 3**: Examine the relationship between pairwise product variance Var$((Z_i Z_j)$) and LD ($r_{ij}$) to identify high LD as the main factor behind inflated variance and biased estimation
+- **Experiment 3**: Examine the relationship between pairwise product variance Var$(Z_i Z_j)$ and LD ($r_{ij}$) to identify high LD as the main factor behind inflated variance and biased estimation
 - **Experiment 4**: Systematic investigation of three factors affecting $h^2_{g \times g}$ estimation — LD level (high/medium/low), MAF threshold (all variants vs. common variants), and SNP number (small vs. large dataset) — across 12 groups. Key findings:
   - Low LD outperforms medium LD, which outperforms high LD
   - MAF filtering shows no clear benefit and can increase bias in medium/high LD settings
