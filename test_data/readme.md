@@ -4,43 +4,83 @@ This directory contains test datasets for the gene-level GxG estimation experime
 
 ## Files
 
-### Datasets
+### Genotype Datasets
 
-| File | Description |
-|------|-------------| 
-| `chr1_Contiguous1KSNP.zip` | 1,000 contiguous SNPs from chromosome 1 |
-| `chr1_Random1KSNP.zip` | 1,000 randomly selected SNPs from chromosome 1 |
-| `chr1_Contiguous1KSNP_LDpruned_08.zip` | Contiguous SNPs after LD pruning (r² threshold = 0.8) |
-| `chr1_Contiguous1KSNP_LDpruned_09.zip` | Contiguous SNPs after LD pruning (r² threshold = 0.9) |
-| `chr1_Contiguous10KSNP_LDpruned_05.zip` | 10K contiguous SNPs, LD pruned (r² = 0.5) |
-| `chr1_Contiguous10KSNP_LDpruned_05_maf005.zip` | 10K contiguous SNPs, LD pruned (r² = 0.5), MAF > 0.05 |
-| `chr1_block3500_pruned_09.zip` | Block 3500 SNPs, LD pruned (r² = 0.9) |
-
-### Simulation results from cluster
-
-| Folder | Description | LD Pruning | MAF Filter |
-|-----------|------|------------|------------|
-| `MoM_result_ContiguousSNP_after_pruning_09_SNP_291/` | 291 | r² = 0.9 | - |
-| `MoM_result_ContiguousSNP_after_pruning_09_SNP_991/` | 991 | r² = 0.9 | - |
-| `MoM_result_ContiguousSNP_after_pruning_05_SNP_861/` | 861 | r² = 0.5 | - |
-| `MoM_result_ContiguousSNP_after_pruning_05_SNP_304 _maf_005/` | 304 | r² = 0.5 | > 0.05 |
-
-### SH Scripts
+**Base datasets:**
 
 | File | Description |
 |------|-------------|
-| `process_code.sh` | Shell script for processing and preparing the test data |
-| `simulate_code.sh` | Simulation code (in each results directory) |
+| `chr1_Contiguous1KSNP.zip` | 1,000 contiguous SNPs from chromosome 1 (high LD) |
+| `chr1_Random1KSNP.zip` | 1,000 randomly selected SNPs from chromosome 1 (low LD) |
+
+**Simulation datasets (2 x 2 x 3 design):**
+
+Datasets are named as `{LD level}_{dataset size}_{variant type}.zip`, varying across three LD pruning thresholds, two dataset sizes, and two variant filters.
+
+| File | LD Pruning | Dataset Size | Variant Filter |
+|------|------------|--------------|----------------|
+| `highLD_small_all.zip` | r² = 0.9 | Small | All variants |
+| `highLD_small_common.zip` | r² = 0.9 | Small | MAF > 0.05 |
+| `highLD_large_all.zip` | r² = 0.9 | Large | All variants |
+| `highLD_large_common.zip` | r² = 0.9 | Large | MAF > 0.05 |
+| `middleLD_small_all.zip` | r² = 0.5 | Small | All variants |
+| `middleLD_small_common.zip` | r² = 0.5 | Small | MAF > 0.05 |
+| `middleLD_large_all.zip` | r² = 0.5 | Large | All variants |
+| `middleLD_large_common.zip` | r² = 0.5 | Large | MAF > 0.05 |
+| `smallLD_small_all.zip` | r² = 0.2 | Small | All variants |
+| `smallLD_small_common.zip` | r² = 0.2 | Small | MAF > 0.05 |
+| `smallLD_large_all.zip` | r² = 0.2 | Large | All variants |
+| `smallLD_large_common.zip` | r² = 0.2 | Large | MAF > 0.05 |
+
+### Simulation Results
+
+The `All_simulation_result/` directory contains MoM estimation results from cluster runs, organized by LD level, dataset size, and variant type:
+
+| Folder | LD Pruning | Dataset Size | Variant Filter | SNPs (m) |
+|--------|------------|--------------|----------------|----------|
+| `highLD_largeDataset_allVariants/` | r² = 0.9 | Large | All | 1200 |
+| `highLD_largeDataset_commonVariants/` | r² = 0.9 | Large | MAF > 0.05 | 1200 |
+| `highLD_smallDataset_allVariants/` | r² = 0.9 | Small | All | 592 |
+| `highLD_smallDataset_commonVariants/` | r² = 0.9 | Small | MAF > 0.05 | 600 |
+| `middleLD_largeDataset_allVariants/` | r² = 0.5 | Large | All | 1200 |
+| `middleLD_largeDataset_commonVariants/` | r² = 0.5 | Large | MAF > 0.05 | 1200 |
+| `middleLD_smallDataset_allVariants/` | r² = 0.5 | Small | All | 500 |
+| `middleLD_smallDataset_comonVariants/` | r² = 0.5 | Small | MAF > 0.05 | 600 |
+| `lowLD_largeDataset_allVariants/` | r² = 0.2 | Large | All | 1200 |
+| `lowLD_largeDataset_commonVariants/` | r² = 0.2 | Large | MAF > 0.05 | 1200 |
+| `lowLD_smallDataset_allVariants/` | r² = 0.2 | Small | All | 600 |
+| `lowLD_smallDataset_commonVariants/` | r² = 0.2 | Small | MAF > 0.05 | 524 |
+
+Each folder contains result files named `{N}m{M}.txt`, where `N` is the sample size (1000, 2000, 4000, or 8000) and `M` is the number of SNPs. Each line contains a tuple of two estimated variance components.
+
+### Scripts
+
+| File | Description |
+|------|-------------|
+| `process_code.sh` | Shell script for extracting SNP blocks, LD pruning, and MAF filtering using PLINK |
 
 ## How to use
 
 Extract the zip files before running the experiments:
 
 ```bash
+# Base datasets
 unzip chr1_Contiguous1KSNP.zip
 unzip chr1_Random1KSNP.zip
-unzip chr1_Contiguous1KSNP_LDpruned_08.zip
-unzip chr1_Contiguous1KSNP_LDpruned_09.zip
-unzip chr1_Contiguous10KSNP_LDpruned_05.zip
-unzip chr1_Contiguous10KSNP_LDpruned_05_maf005.zip
-unzip chr1_block3500_pruned_09.zip
+
+# Simulation datasets
+unzip highLD_small_all.zip
+unzip highLD_small_common.zip
+unzip highLD_large_all.zip
+unzip highLD_large_common.zip
+unzip middleLD_small_all.zip
+unzip middleLD_small_common.zip
+unzip middleLD_large_all.zip
+unzip middleLD_large_common.zip
+unzip smallLD_small_all.zip
+unzip smallLD_small_common.zip
+unzip smallLD_large_all.zip
+unzip smallLD_large_common.zip
+
+
+---
