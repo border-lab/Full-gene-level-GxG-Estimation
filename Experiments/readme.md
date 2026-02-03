@@ -18,15 +18,15 @@ Validates the MoM estimation method through Monte Carlo simulations.
 Investigates the challenges of GxG estimation when using contiguous (neighboring) SNPs, particularly the effects of linkage disequilibrium (LD).
 
 **Experiments:**
-- **Experiment 1**: Analysis of pairwise product variance relationships
-- **Experiment 2**: Distribution analysis of Var(ZiZj) for standardized genotypes
-- **Experiment 3**: Correlation between variance and LD strength
-- **Experiment 4**: Evaluation of LD-pruning strategies (r^2 > 0.9, 294 SNPs remain from 1000)
-- **Experiment 5**: Impact of removing highly correlated SNP pairs (around 300, original 1k)
-- **Experiment 6**: Same setting as Experiment 5 but with increased SNP size to around 1k
-- **Experiment 7**: LD pruning with stricter threshold (r^2 > 0.5, ~900 SNPs remaining from 10k)
-- **Experiment 8**: Combined filtering with MAF > 0.05 and LD pruning (r^2 > 0.5, ~300 SNPs remaining from 10k)
+- **Experiment 1**: Validate the closed-form expression for Var$(Z_i Z_j)$ by comparing formula-based variance against empirical variance using simulated SNPs across increasing sample sizes
 
+- **Experiment 2**: Compare the overall distribution of pairwise product variance Var$(Z_i Z_j)$ between contiguous and random SNPs to understand why the MoM estimator produces biased results with contiguous SNPs
+
+- **Experiment 3**: Examine the relationship between pairwise product variance Var$(Z_i Z_j)$ and LD ($r_{ij}$) to identify high LD as the main factor behind inflated variance and biased estimation
+- **Experiment 4**: Systematic investigation of three factors affecting $h^2_{g \times g}$ estimation — LD level (high/medium/low), MAF threshold (all variants vs. common variants), and SNP number (small vs. large dataset) — across 12 groups. Key findings:
+  - Low LD outperforms medium LD, which outperforms high LD
+  - MAF filtering shows no clear benefit and can increase bias in medium/high LD settings
+  - SNP number does not affect bias, but its effect on standard error depends on LD level
 ---
 
 ### 3. simulation_weight.ipynb
@@ -41,4 +41,3 @@ To be continue
 
 The notebooks use test data from `../test_data/`.
 All Python modules are located in `../python_scripts/`.
-
