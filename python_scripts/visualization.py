@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, save_path=None):
+def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value,ymin, ymax, save_path=None):
     """
     Plot relative errors with error bars (sorted by numeric sample size).
     parameters:
@@ -77,6 +77,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}) ",
         fontsize=14, pad=10
     )
+    plt.ylim(ymin, ymax)
     plt.xlabel("Sample Size (N)", fontsize=12)
     plt.ylabel(f"Relative error: ({theta} - {real_value}) / {real_value}", fontsize=12)
 
