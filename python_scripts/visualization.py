@@ -40,6 +40,9 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         .sort_index()         
     )
 
+    # Get baseline SD (first sample size)
+    baseline_std = summary["std"].iloc[0]
+
     # x-axis positions
     x_positions = np.arange(len(summary))
 
@@ -65,12 +68,24 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
             markeredgewidth=0.5, zorder=6
         )
         
-        # Add text annotation for mean and std
+        # Calculate fold change relative to baseline
+        fold_change = row["std"] / baseline_std
+        
+        # Determine color: green if SD decreased (fold < 1), red if increased (fold > 1)
+        if i == 0:
+            # First sample size - no fold change, use black
+            fold_text = ""
+            box_color = 'white'
+        else:
+            fold_text = f"\n({fold_change:.2f}x)"
+            box_color = 'lightgreen' if fold_change < 1 else 'lightcoral'
+        
+        # Add text annotation for mean and std with fold change
         plt.text(
             i, ymax - 0.05 * (ymax - ymin),  # Position near top of plot
-            f"Mean: {row['mean']:.4f}\nSD: {row['std']:.4f}",
+            f"Mean: {row['mean']:.4f}\nSD: {row['std']:.4f}{fold_text}",
             ha='center', va='top', fontsize=9,
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.8)
+            bbox=dict(boxstyle='round,pad=0.3', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
 
     # Theta label
@@ -103,7 +118,6 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         print(f"Plot saved to: {save_path}")
     else:
         plt.show()
-        
 
 def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
     
