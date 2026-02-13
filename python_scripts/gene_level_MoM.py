@@ -177,6 +177,77 @@ def MoM_only_M(Z, y, nmc=40):
     return x1[0], x1[1], A 
 
 
+def MoM_only_M_standardized(Z, y, nmc=40):
+    """
+    Method of Moments estimator with standardized GxG kernel.
+    W is scaled so that tr(W) = n for unbiased estimation.
+    """
+    n = Z.shape[0]
+    m = Z.shape[1]
+    p = m * (m - 1) / 2 
+    
+    # Random vectors for stochastic trace estimation
+    u = np.random.randn(n, nmc)
+    
+    # D = Z ⊙ Z (element-wise square)
+    ZZ = Z * Z
+    
+    # Compute D @ D.T @ u
+    Du = ZZ @ (ZZ.T @ u)
+
+    # Compute (K ⊙ K) @ u where K = Z @ Z.T
+    KKu = np.zeros((n, nmc))
+    for i in range(nmc):
+        Z_tilde = u[:, i].reshape(-1, 1) * Z
+        M = Z.T @ Z_tilde
+        ZM = Z @ M
+        KKu[:, i] = np.sum(ZM * Z, axis=1)
+
+    # W_raw = 0.5 * (K⊙K - D@D.T) / p  (before standardization)
+    trW_raw = 0.5 * (np.mean(np.sum(u * KKu, axis=0)) - np.mean(np.sum(u * Du, axis=0))) / p
+    
+    # Scaling factor to make tr(W) = n
+    # W_std = W_raw * (n / tr(W_raw))
+    scale = n / trW_raw
+    
+    # Apply scaling to all W-related terms
+    # tr(W_std) = n (by construction)
+    trW_app = n
+    
+    # tr(W_std^2) = tr(W_raw^2) * scale^2
+    trKK2 = np.mean(np.sum(KKu * KKu, axis=0))
+    trDK = np.mean(np.sum(Du * KKu, axis=0))
+    trDD = np.mean(np.sum(Du * Du, axis=0))
+    trW2_raw = (trKK2 - 2 * trDK + trDD) / (4 * p**2)
+    trW2_app = trW2_raw * (scale ** 2)
+    
+    # Quadratic forms
+    yTy = y @ y
+    
+    # y.T @ W_raw @ y
+    yTWy_raw = 0.5 * (y.T @ (np.sum((Z @ (Z.T @ (y.reshape(-1, 1) * Z))) * Z, axis=1)) - (y @ (ZZ @ (ZZ.T @ y)))) / p
+    
+    # y.T @ W_std @ y = y.T @ W_raw @ y * scale
+    yTWy = yTWy_raw * scale
+
+    # ============ Solve moment equations ============
+    # E[y.T @ W @ y] = s2gxg * tr(W^2) + s2e * tr(W)
+    # E[y.T @ y] = s2gxg * tr(W) + s2e * n
+    A = np.array([
+        [trW2_app, trW_app],
+        [trW_app, n]
+    ])
+    
+    b = np.array([
+        yTWy,
+        yTy
+    ]).reshape(-1, 1)
+    
+    x1 = np.linalg.solve(A, b)
+    
+    return x1[0], x1[1], A, scale
+
+
 def run_experiment_MC(X, n_mc=100, s2gxg=0.9, s2e=0.1):
     """
     Run Monte Carlo simulations to estimate GxG and residual variance components.
