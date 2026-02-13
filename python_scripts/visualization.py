@@ -4,18 +4,22 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 
-
-def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value,ymin, ymax, save_path=None):
+def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, ymin, ymax, error_type="se", save_path=None):
     """
     Plot relative errors with error bars (sorted by numeric sample size).
-    parameters:
+    
+    Parameters:
+    -----------
     dfs: list of DataFrames containing estimation results at different sample sizes
     basic_individual: base sample size to compute actual sample sizes
     col_num: column number in DataFrames to plot (0 for s2gxg, 1 for s2e)
     real_value: the true value of the parameter being estimated
+    ymin, ymax: y-axis limits
+    error_type: "se" for standard error, "sd" for standard deviation
     save_path: optional path to save the plot image
 
-    returns:
+    Returns:
+    --------
     A plot showing relative errors across different sample sizes with error bars.
     """
     # Gather data 
@@ -30,20 +34,26 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
 
     data = pd.concat(data_list, ignore_index=True)
 
-    #  Compute summary
+    # Compute summary statistics
     summary = (
         data.groupby("N")["value"]
         .agg(["mean", "std", "count"])
         .sort_index()         
     )
-    summary["se"] = summary["std"]
+    
+    # Calculate standard error: SE = SD / sqrt(n)
+    summary["se"] = summary["std"] / np.sqrt(summary["count"])
+    
+    # Choose which error measure to display
+    error_col = "se" if error_type == "se" else "std"
+    error_label = "SE" if error_type == "se" else "SD"
 
     # x-axis positions
     x_positions = np.arange(len(summary))
 
     plt.figure(figsize=(10, 5))
 
-    #  Strip plot 
+    # Strip plot 
     sns.stripplot(
         x="N", y="value", data=data,
         color="black", size=3, jitter=True, alpha=0.6,
@@ -53,7 +63,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     # Error bars + mean dots
     for i, (N, row) in enumerate(summary.iterrows()):
         plt.errorbar(
-            x=i, y=row["mean"], yerr=row["se"],
+            x=i, y=row["mean"], yerr=row[error_col],
             fmt="none", ecolor="red", elinewidth=3,
             capsize=8, capthick=2.5, alpha=0.9, zorder=5
         )
@@ -74,7 +84,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}) ",
+        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}, error bars = {error_label})",
         fontsize=14, pad=10
     )
     plt.ylim(ymin, ymax)
@@ -86,14 +96,14 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
 
     plt.tight_layout()
 
-    #  Save or show plot
+    # Save or show plot
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=600, bbox_inches="tight")
-        print(f" Plot saved to: {save_path}")
+        print(f"Plot saved to: {save_path}")
     else:
         plt.show()
-
+        
 
 def plot_var_pairwise_products_against_ld(var, ld, q=0.999, save_path=None):
     
