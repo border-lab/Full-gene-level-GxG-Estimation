@@ -4,7 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 
-def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, ymin, ymax, error_type="se", save_path=None):
+def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, ymin, ymax, save_path=None):
     """
     Plot relative errors with error bars (sorted by numeric sample size).
     
@@ -15,7 +15,6 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     col_num: column number in DataFrames to plot (0 for s2gxg, 1 for s2e)
     real_value: the true value of the parameter being estimated
     ymin, ymax: y-axis limits
-    error_type: "se" for standard error, "sd" for standard deviation
     save_path: optional path to save the plot image
 
     Returns:
@@ -40,13 +39,6 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         .agg(["mean", "std", "count"])
         .sort_index()         
     )
-    
-    # Calculate standard error: SE = SD / sqrt(n)
-    summary["se"] = summary["std"] / np.sqrt(summary["count"])
-    
-    # Choose which error measure to display
-    error_col = "se" if error_type == "se" else "std"
-    error_label = "SE" if error_type == "se" else "SD"
 
     # x-axis positions
     x_positions = np.arange(len(summary))
@@ -60,10 +52,10 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         order=summary.index  
     )
 
-    # Error bars + mean dots + text annotations
+    # Error bars (using std) + mean dots + text annotations
     for i, (N, row) in enumerate(summary.iterrows()):
         plt.errorbar(
-            x=i, y=row["mean"], yerr=row[error_col],
+            x=i, y=row["mean"], yerr=row["std"],  # Using std for error bars
             fmt="none", ecolor="red", elinewidth=3,
             capsize=8, capthick=2.5, alpha=0.9, zorder=5
         )
@@ -92,7 +84,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value})",
+        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}, error bars = SD)",
         fontsize=14, pad=10
     )
     plt.ylim(ymin, ymax)
