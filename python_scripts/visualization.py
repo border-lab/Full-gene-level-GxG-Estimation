@@ -60,7 +60,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         order=summary.index  
     )
 
-    # Error bars + mean dots
+    # Error bars + mean dots + text annotations
     for i, (N, row) in enumerate(summary.iterrows()):
         plt.errorbar(
             x=i, y=row["mean"], yerr=row[error_col],
@@ -71,6 +71,14 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
             i, row["mean"], marker="o", color="blue",
             markersize=6, markeredgecolor="black",
             markeredgewidth=0.5, zorder=6
+        )
+        
+        # Add text annotation for mean and std
+        plt.text(
+            i, ymax - 0.05 * (ymax - ymin),  # Position near top of plot
+            f"Mean: {row['mean']:.4f}\nSD: {row['std']:.4f}",
+            ha='center', va='top', fontsize=9,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.8)
         )
 
     # Theta label
@@ -84,7 +92,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}, error bars = {error_label})",
+        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value})",
         fontsize=14, pad=10
     )
     plt.ylim(ymin, ymax)
