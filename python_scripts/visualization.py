@@ -218,8 +218,8 @@ def read_MoM_results(individual_sizes, path, file_name, num_snp):
 
     data_dict = {}
     for n in individual_sizes:
-        file_name = f"{file_name}_n{n}m{num_snp}.txt"
-        file_path = os.path.join(path, file_name)
+        full_file_name = f"{file_name}_n{n}m{num_snp}.txt"  # different variable
+        file_path = os.path.join(path, full_file_name)
         
         df = pd.read_csv(file_path, header=None)
         df[0] = df[0].astype(str).str.replace('(', '', regex=False).astype(float)
