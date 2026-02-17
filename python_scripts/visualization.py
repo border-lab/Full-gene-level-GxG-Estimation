@@ -39,9 +39,12 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         .agg(["mean", "std", "count"])
         .sort_index()         
     )
+    
+    # Calculate SE = std / sqrt(count)
+    summary["se"] = summary["std"] / np.sqrt(summary["count"])
 
-    # Get baseline SD (first sample size)
-    baseline_std = summary["std"].iloc[0]
+    # Get baseline SE (first sample size)
+    baseline_se = summary["se"].iloc[0]
 
     # x-axis positions
     x_positions = np.arange(len(summary))
@@ -55,10 +58,10 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         order=summary.index  
     )
 
-    # Error bars (using std) + mean dots + text annotations
+    # Error bars (using SE) + mean dots + text annotations
     for i, (N, row) in enumerate(summary.iterrows()):
         plt.errorbar(
-            x=i, y=row["mean"], yerr=row["std"],  # Using std for error bars
+            x=i, y=row["mean"], yerr=row["se"],  # Using SE for error bars
             fmt="none", ecolor="red", elinewidth=3,
             capsize=8, capthick=2.5, alpha=0.9, zorder=5
         )
@@ -69,9 +72,9 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
         )
         
         # Calculate fold change relative to baseline
-        fold_change = row["std"] / baseline_std
+        fold_change = row["se"] / baseline_se
         
-        # Determine color: green if SD decreased (fold < 1), red if increased (fold > 1)
+        # Determine color: green if SE decreased (fold < 1), red if increased (fold > 1)
         if i == 0:
             # First sample size - no fold change, use black
             fold_text = ""
@@ -80,10 +83,10 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
             fold_text = f"\n({fold_change:.2f}x)"
             box_color = 'lightgreen' if fold_change < 1 else 'lightcoral'
         
-        # Add text annotation for mean and std with fold change
+        # Add text annotation for mean and SE with fold change
         plt.text(
             i, ymax - 0.05 * (ymax - ymin),  # Position near top of plot
-            f"Mean: {row['mean']:.4f}\nSD: {row['std']:.4f}{fold_text}",
+            f"Mean: {row['mean']:.4f}\nSE: {row['se']:.4f}{fold_text}",
             ha='center', va='top', fontsize=9,
             bbox=dict(boxstyle='round,pad=0.3', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
@@ -99,7 +102,7 @@ def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, rea
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}, error bars = SD)",
+        f"Change of relative error of {theta} by Sample Size\n(real value = {real_value}, error bars = SE)",
         fontsize=14, pad=10
     )
     plt.ylim(ymin, ymax)
