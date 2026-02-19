@@ -330,25 +330,28 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             fold_text = f"\n({fold_change:.2f}x)"
             box_color = 'lightgreen' if fold_change < 1 else 'lightcoral'
         
-        # Format p-value with significance stars
+        # Format significance stars
         p_val = row["p_value"]
         if p_val < 0.001:
             sig_text = "***"
-            p_display = "p<0.001"
         elif p_val < 0.01:
             sig_text = "**"
-            p_display = f"p={p_val:.3f}"
         elif p_val < 0.05:
             sig_text = "*"
-            p_display = f"p={p_val:.3f}"
         else:
             sig_text = "ns"
-            p_display = f"p={p_val:.3f}"
         
-        # Add text annotation with p-value
+        # Add significance stars at top
         plt.text(
-            i, ymax - 0.03 * (ymax - ymin),
-            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}\n{p_display} {sig_text}{fold_text}",
+            i, ymax - 0.02 * (ymax - ymin),
+            sig_text,
+            ha='center', va='top', fontsize=10, fontweight='bold'
+        )
+        
+        # Add text annotation (Mean, SE, fold change only)
+        plt.text(
+            i, ymax - 0.08 * (ymax - ymin),
+            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
             ha='center', va='top', fontsize=6,
             bbox=dict(boxstyle='round,pad=0.2', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
