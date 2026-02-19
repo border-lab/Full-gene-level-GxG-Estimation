@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from scipy import stats
 import os
 
 def plot_relative_error_accross_sample_size(*dfs, basic_individual, col_num, real_value, ymin, ymax, save_path=None):
