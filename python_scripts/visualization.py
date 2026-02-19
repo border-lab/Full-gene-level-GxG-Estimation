@@ -233,7 +233,6 @@ def read_MoM_results(individual_sizes, path, file_name, num_snp):
         
     return data_dict
 
-
 def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual_sizes, col_num, real_value, ymin, ymax, x_axis_name="Group", save_path=None):
     """
     Plot relative errors with error bars and significance tests.
@@ -263,14 +262,32 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     
-    # Perform one-sample t-test for each group
-    p_values = {}
+    # Perform one-sample t-test for each group (mean != 0)
+    p_values_mean = {}
     for combined_label in combined_labels:
         group_data = data[data["group"] == combined_label]["value"].values
         t_stat, p_val = stats.ttest_1samp(group_data, 0)
-        p_values[combined_label] = p_val
+        p_values_mean[combined_label] = p_val
     
-    summary["p_value"] = summary.index.map(p_values)
+    summary["p_value_mean"] = summary.index.map(p_values_mean)
+    
+    # Perform Levene's test for variance reduction (compared to first in each LD group)
+    p_values_var = {}
+    for label in x_labels:
+        first_label = f"{label}\nN={individual_sizes[0]}"
+        first_data = data[data["group"] == first_label]["value"].values
+        
+        for n in individual_sizes:
+            combined_label = f"{label}\nN={n}"
+            if combined_label == first_label:
+                p_values_var[combined_label] = np.nan  # No comparison for baseline
+            else:
+                current_data = data[data["group"] == combined_label]["value"].values
+                # Levene's test for equality of variances
+                stat, p_val = stats.levene(first_data, current_data)
+                p_values_var[combined_label] = p_val
+    
+    summary["p_value_var"] = summary.index.map(p_values_var)
     
     # Calculate baseline SE for each LD group
     baseline_ses = {}
@@ -323,32 +340,50 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         fold_change = row["se"] / baseline_se
         is_first_in_group = combined_label.endswith(f"N={individual_sizes[0]}")
         
+        # Significance for mean test
+        p_val_mean = row["p_value_mean"]
+        if p_val_mean < 0.001:
+            sig_mean = "***"
+        elif p_val_mean < 0.01:
+            sig_mean = "**"
+        elif p_val_mean < 0.05:
+            sig_mean = "*"
+        else:
+            sig_mean = "ns"
+        
+        # Significance for variance reduction test
+        p_val_var = row["p_value_var"]
         if is_first_in_group:
             fold_text = ""
             box_color = 'white'
+            sig_var = ""
         else:
-            fold_text = f"\n({fold_change:.2f}x)"
-            box_color = 'lightgreen' if fold_change < 1 else 'lightcoral'
+            if p_val_var < 0.001:
+                sig_var = "†††"
+            elif p_val_var < 0.01:
+                sig_var = "††"
+            elif p_val_var < 0.05:
+                sig_var = "†"
+            else:
+                sig_var = ""
+            
+            fold_text = f"\n({fold_change:.2f}x){sig_var}"
+            # Green if significantly reduced, light green if reduced but not significant
+            if fold_change < 1 and p_val_var < 0.05:
+                box_color = 'lightgreen'
+            elif fold_change < 1:
+                box_color = 'lightyellow'
+            else:
+                box_color = 'lightcoral'
         
-        # Format significance stars
-        p_val = row["p_value"]
-        if p_val < 0.001:
-            sig_text = "***"
-        elif p_val < 0.01:
-            sig_text = "**"
-        elif p_val < 0.05:
-            sig_text = "*"
-        else:
-            sig_text = "ns"
-        
-        # Add significance stars at top
+        # Add significance stars for mean at top
         plt.text(
             i, ymax - 0.02 * (ymax - ymin),
-            sig_text,
+            sig_mean,
             ha='center', va='top', fontsize=10, fontweight='bold'
         )
         
-        # Add text annotation (Mean, SE, fold change only)
+        # Add text annotation (Mean, SE, fold change with variance significance)
         plt.text(
             i, ymax - 0.08 * (ymax - ymin),
             f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
@@ -372,8 +407,9 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n(real value = {real_value}, error bars = SE, *p<0.05, **p<0.01, ***p<0.001)",
-        fontsize=12, pad=10
+        f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n"
+        f"(real value = {real_value}, *p<0.05 mean≠0, †p<0.05 variance reduced)",
+        fontsize=11, pad=10
     )
     plt.ylim(ymin, ymax)
     plt.xlabel(f"{x_axis_name} / Sample Size", fontsize=12)
