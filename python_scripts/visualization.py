@@ -232,11 +232,11 @@ def read_MoM_results(individual_sizes, path, file_name, num_snp):
         data_dict[n] = df
         
     return data_dict
-
 def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual_sizes, col_num, real_value, ymin, ymax, x_axis_name="Group", save_path=None):
     """
     Plot relative errors with error bars and significance tests.
     """
+    from scipy import stats
     
     def variance_reduction_ftest(baseline_data, current_data):
         """
@@ -250,14 +250,11 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         n1 = len(baseline_data)
         n2 = len(current_data)
         
-        # F = var_baseline / var_current
-        # If variance reduced, F > 1
         f_stat = var_baseline / var_current
         
         df1 = n1 - 1
         df2 = n2 - 1
         
-        # One-tailed p-value (testing if var_current < var_baseline)
         p_value = 1 - stats.f.cdf(f_stat, df1, df2)
         
         return f_stat, p_value
@@ -441,11 +438,11 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add legend
+    # Add legend at bottom left
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
                                   markerfacecolor=color_map[label], markersize=8, label=label)
                       for label in x_labels]
-    plt.legend(handles=legend_handles, loc='upper right', fontsize=10)
+    plt.legend(handles=legend_handles, loc='lower left', fontsize=10)
     
     # Add caption at bottom right
     caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced (one-tailed F-test)"
