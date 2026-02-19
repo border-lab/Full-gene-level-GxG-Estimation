@@ -237,7 +237,30 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     """
     Plot relative errors with error bars and significance tests.
     """
-    from scipy import stats
+    
+    def variance_reduction_ftest(baseline_data, current_data):
+        """
+        One-tailed F-test for variance reduction.
+        H0: var_current >= var_baseline
+        H1: var_current < var_baseline
+        """
+        var_baseline = np.var(baseline_data, ddof=1)
+        var_current = np.var(current_data, ddof=1)
+        
+        n1 = len(baseline_data)
+        n2 = len(current_data)
+        
+        # F = var_baseline / var_current
+        # If variance reduced, F > 1
+        f_stat = var_baseline / var_current
+        
+        df1 = n1 - 1
+        df2 = n2 - 1
+        
+        # One-tailed p-value (testing if var_current < var_baseline)
+        p_value = 1 - stats.f.cdf(f_stat, df1, df2)
+        
+        return f_stat, p_value
     
     # Gather data for all combinations
     data_list = []
@@ -271,8 +294,9 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     summary["p_value_mean"] = summary.index.map(p_values_mean)
     
-    # Perform Levene's test for variance reduction (compared to first in each LD group)
+    # Perform F-test for variance reduction (compared to first in each LD group)
     p_values_var = {}
+    f_stats = {}
     for label in x_labels:
         first_label = f"{label}\nN={individual_sizes[0]}"
         first_data = data[data["group"] == first_label]["value"].values
@@ -280,14 +304,16 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         for n in individual_sizes:
             combined_label = f"{label}\nN={n}"
             if combined_label == first_label:
-                p_values_var[combined_label] = np.nan  # No comparison for baseline
+                p_values_var[combined_label] = np.nan
+                f_stats[combined_label] = np.nan
             else:
                 current_data = data[data["group"] == combined_label]["value"].values
-                # Levene's test for equality of variances
-                stat, p_val = stats.levene(first_data, current_data)
+                f_stat, p_val = variance_reduction_ftest(first_data, current_data)
                 p_values_var[combined_label] = p_val
+                f_stats[combined_label] = f_stat
     
     summary["p_value_var"] = summary.index.map(p_values_var)
+    summary["f_stat"] = summary.index.map(f_stats)
     
     # Calculate baseline SE for each LD group
     baseline_ses = {}
@@ -303,7 +329,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     plt.figure(figsize=(fig_width, 6))
     
     # Define distinct colors for each LD level
-    color_list = ['#1f77b4', '#d62728', '#2ca02c']  # Blue, Red, Green
+    color_list = ['#1f77b4', '#d62728', '#2ca02c']
     color_map = {label: color_list[i] for i, label in enumerate(x_labels)}
     
     # Strip plot with colors by LD level
@@ -351,12 +377,11 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         else:
             sig_mean = "ns"
         
-        # Significance for variance reduction test
+        # Significance for variance reduction test (F-test)
         p_val_var = row["p_value_var"]
         if is_first_in_group:
             fold_text = ""
             box_color = 'white'
-            sig_var = ""
         else:
             if p_val_var < 0.001:
                 sig_var = "†††"
@@ -368,7 +393,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
                 sig_var = ""
             
             fold_text = f"\n({fold_change:.2f}x){sig_var}"
-            # Green if significantly reduced, light green if reduced but not significant
+            
             if fold_change < 1 and p_val_var < 0.05:
                 box_color = 'lightgreen'
             elif fold_change < 1:
@@ -383,7 +408,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             ha='center', va='top', fontsize=10, fontweight='bold'
         )
         
-        # Add text annotation (Mean, SE, fold change with variance significance)
+        # Add text annotation
         plt.text(
             i, ymax - 0.08 * (ymax - ymin),
             f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
@@ -404,11 +429,10 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     else:
         theta = "Parameter"
     
-    # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
         f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n"
-        f"(real value = {real_value}, *p<0.05 mean≠0, †p<0.05 variance reduced)",
+        f"(real value = {real_value})",
         fontsize=11, pad=10
     )
     plt.ylim(ymin, ymax)
@@ -417,11 +441,22 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add legend with correct colors
+    # Add legend
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
                                   markerfacecolor=color_map[label], markersize=8, label=label)
                       for label in x_labels]
     plt.legend(handles=legend_handles, loc='upper right', fontsize=10)
+    
+    # Add caption at bottom right
+    caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced (one-tailed F-test)"
+    plt.text(
+        0.98, 0.02,
+        caption_text,
+        transform=plt.gca().transAxes,
+        ha='right', va='bottom',
+        fontsize=8,
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.9)
+    )
     
     plt.tight_layout()
     
