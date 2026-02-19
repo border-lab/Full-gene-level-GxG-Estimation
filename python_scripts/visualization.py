@@ -235,18 +235,7 @@ def read_MoM_results(individual_sizes, path, file_name, num_snp):
 
 def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual_sizes, col_num, real_value, ymin, ymax, x_axis_name="Group", save_path=None):
     """
-    Plot relative errors with error bars across different groups and sample sizes combined.
-    
-    Parameters:
-    -----------
-    data_dicts: dictionaries with sample sizes as keys (e.g., highLD_results, middleLD_results, ...)
-    x_labels: list of labels for groups (e.g., ["High LD", "Middle LD", "Low LD"])
-    individual_sizes: list of sample sizes (e.g., [1000, 2000, 4000, 8000])
-    col_num: column number in DataFrames to plot
-    real_value: the true value of the parameter being estimated
-    ymin, ymax: y-axis limits
-    x_axis_name: name for the x-axis
-    save_path: optional path to save the plot image
+    Plot relative errors with error bars and significance tests.
     """
     # Gather data for all combinations
     data_list = []
@@ -271,7 +260,16 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     
-    # Calculate baseline SE for each LD group (first sample size within each group)
+    # Perform one-sample t-test for each group
+    p_values = {}
+    for combined_label in combined_labels:
+        group_data = data[data["group"] == combined_label]["value"].values
+        t_stat, p_val = stats.ttest_1samp(group_data, 0)
+        p_values[combined_label] = p_val
+    
+    summary["p_value"] = summary.index.map(p_values)
+    
+    # Calculate baseline SE for each LD group
     baseline_ses = {}
     for i, label in enumerate(x_labels):
         first_combined_label = f"{label}\nN={individual_sizes[0]}"
@@ -280,7 +278,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     # x-axis positions
     x_positions = np.arange(len(summary))
     
-    # Create figure with appropriate width
+    # Create figure
     fig_width = max(12, len(combined_labels) * 1.2)
     plt.figure(figsize=(fig_width, 6))
     
@@ -288,7 +286,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     colors = plt.cm.tab10(np.linspace(0, 1, len(x_labels)))
     color_map = {label: colors[i] for i, label in enumerate(x_labels)}
     
-    # Strip plot with colors by LD level (smaller points)
+    # Strip plot with colors by LD level
     for i, (label, data_dict) in enumerate(zip(x_labels, data_dicts)):
         for j, n in enumerate(individual_sizes):
             combined_label = f"{label}\nN={n}"
@@ -298,7 +296,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             plt.scatter(
                 x=np.random.normal(x_pos, 0.1, len(subset)),
                 y=subset["value"],
-                color=color_map[label], s=5, alpha=0.4  # Smaller points: s=5
+                color=color_map[label], s=5, alpha=0.4
             )
     
     # Error bars + mean dots + text annotations
@@ -318,10 +316,8 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         current_ld_label = combined_label.split("\n")[0]
         baseline_se = baseline_ses[current_ld_label]
         
-        # Calculate fold change relative to baseline within the same LD group
+        # Calculate fold change
         fold_change = row["se"] / baseline_se
-        
-        # Check if this is the first sample size in its LD group
         is_first_in_group = combined_label.endswith(f"N={individual_sizes[0]}")
         
         if is_first_in_group:
@@ -331,11 +327,22 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             fold_text = f"\n({fold_change:.2f}x)"
             box_color = 'lightgreen' if fold_change < 1 else 'lightcoral'
         
-        # Add text annotation
+        # Format p-value with significance stars
+        p_val = row["p_value"]
+        if p_val < 0.001:
+            sig_text = "***"
+        elif p_val < 0.01:
+            sig_text = "**"
+        elif p_val < 0.05:
+            sig_text = "*"
+        else:
+            sig_text = "ns"
+        
+        # Add text annotation with p-value
         plt.text(
             i, ymax - 0.03 * (ymax - ymin),
-            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
-            ha='center', va='top', fontsize=7,
+            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}\np={p_val:.3f} {sig_text}{fold_text}",
+            ha='center', va='top', fontsize=6,
             bbox=dict(boxstyle='round,pad=0.2', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
     
@@ -355,8 +362,8 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     # Labels and title
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n(real value = {real_value}, error bars = SE)",
-        fontsize=14, pad=10
+        f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n(real value = {real_value}, error bars = SE, *p<0.05, **p<0.01, ***p<0.001)",
+        fontsize=12, pad=10
     )
     plt.ylim(ymin, ymax)
     plt.xlabel(f"{x_axis_name} / Sample Size", fontsize=12)
@@ -364,7 +371,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add legend for LD levels
+    # Add legend
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
                                   markerfacecolor=color_map[label], markersize=8, label=label)
                       for label in x_labels]
@@ -372,7 +379,6 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.tight_layout()
     
-    # Save or show plot
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=600, bbox_inches="tight")
