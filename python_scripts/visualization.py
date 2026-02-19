@@ -238,6 +238,8 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     """
     Plot relative errors with error bars and significance tests.
     """
+    from scipy import stats
+    
     # Gather data for all combinations
     data_list = []
     combined_labels = []
@@ -272,7 +274,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     # Calculate baseline SE for each LD group
     baseline_ses = {}
-    for i, label in enumerate(x_labels):
+    for label in x_labels:
         first_combined_label = f"{label}\nN={individual_sizes[0]}"
         baseline_ses[label] = summary.loc[first_combined_label, "se"]
     
@@ -283,9 +285,9 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     fig_width = max(12, len(combined_labels) * 1.2)
     plt.figure(figsize=(fig_width, 6))
     
-    # Define colors for each LD level
-    colors = plt.cm.tab10(np.linspace(0, 1, len(x_labels)))
-    color_map = {label: colors[i] for i, label in enumerate(x_labels)}
+    # Define distinct colors for each LD level
+    color_list = ['#1f77b4', '#d62728', '#2ca02c']  # Blue, Red, Green
+    color_map = {label: color_list[i] for i, label in enumerate(x_labels)}
     
     # Strip plot with colors by LD level
     for i, (label, data_dict) in enumerate(zip(x_labels, data_dicts)):
@@ -332,17 +334,21 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         p_val = row["p_value"]
         if p_val < 0.001:
             sig_text = "***"
+            p_display = "p<0.001"
         elif p_val < 0.01:
             sig_text = "**"
+            p_display = f"p={p_val:.3f}"
         elif p_val < 0.05:
             sig_text = "*"
+            p_display = f"p={p_val:.3f}"
         else:
             sig_text = "ns"
+            p_display = f"p={p_val:.3f}"
         
         # Add text annotation with p-value
         plt.text(
             i, ymax - 0.03 * (ymax - ymin),
-            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}\np={p_val:.3f} {sig_text}{fold_text}",
+            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}\n{p_display} {sig_text}{fold_text}",
             ha='center', va='top', fontsize=6,
             bbox=dict(boxstyle='round,pad=0.2', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
@@ -372,7 +378,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add legend
+    # Add legend with correct colors
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
                                   markerfacecolor=color_map[label], markersize=8, label=label)
                       for label in x_labels]
