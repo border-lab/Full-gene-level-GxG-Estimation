@@ -281,6 +281,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         .loc[combined_labels]
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
+    summary["ci95"] = 1.96 * summary["se"]  # 95% CI
     
     # Perform one-sample t-test for each group (mean != 0)
     p_values_mean = {}
@@ -325,11 +326,10 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     fig_width = max(12, len(combined_labels) * 1.2)
     plt.figure(figsize=(fig_width, 6))
     
-    # Define distinct colors for each LD level
-    color_list = ['#1f77b4', '#d62728', '#2ca02c']
-    color_map = {label: color_list[i] for i, label in enumerate(x_labels)}
+    # Single color for all points
+    point_color = 'gray'
     
-    # Strip plot with colors by LD level
+    # Strip plot with single color
     for i, (label, data_dict) in enumerate(zip(x_labels, data_dicts)):
         for j, n in enumerate(individual_sizes):
             combined_label = f"{label}\nN={n}"
@@ -339,13 +339,14 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             plt.scatter(
                 x=np.random.normal(x_pos, 0.1, len(subset)),
                 y=subset["value"],
-                color=color_map[label], s=5, alpha=0.4
+                color=point_color, s=5, alpha=0.4
             )
     
     # Error bars + mean dots + text annotations
     for i, (combined_label, row) in enumerate(summary.iterrows()):
+        # 95% CI error bars
         plt.errorbar(
-            x=i, y=row["mean"], yerr=row["se"],
+            x=i, y=row["mean"], yerr=row["ci95"],  # Using 95% CI
             fmt="none", ecolor="red", elinewidth=2,
             capsize=5, capthick=2, alpha=0.9, zorder=5
         )
@@ -413,7 +414,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             bbox=dict(boxstyle='round,pad=0.2', facecolor=box_color, edgecolor='gray', alpha=0.8)
         )
     
-    # Add vertical separators between LD groups
+    # Add vertical separators between groups
     for i in range(1, len(x_labels)):
         sep_pos = i * len(individual_sizes) - 0.5
         plt.axvline(sep_pos, color='gray', linestyle='--', linewidth=1, alpha=0.5)
@@ -438,14 +439,8 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add legend at bottom left
-    legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
-                                  markerfacecolor=color_map[label], markersize=8, label=label)
-                      for label in x_labels]
-    plt.legend(handles=legend_handles, loc='lower left', fontsize=10)
-    
     # Add caption at bottom right
-    caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced (one-tailed F-test)"
+    caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced (one-tailed F-test)\nError bars = 95% CI"
     plt.text(
         0.98, 0.02,
         caption_text,
