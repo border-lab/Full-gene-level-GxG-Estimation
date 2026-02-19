@@ -271,8 +271,11 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     
-    # Get baseline SE (first group)
-    baseline_se = summary["se"].iloc[0]
+    # Calculate baseline SE for each LD group (first sample size within each group)
+    baseline_ses = {}
+    for i, label in enumerate(x_labels):
+        first_combined_label = f"{label}\nN={individual_sizes[0]}"
+        baseline_ses[label] = summary.loc[first_combined_label, "se"]
     
     # x-axis positions
     x_positions = np.arange(len(summary))
@@ -285,7 +288,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     colors = plt.cm.tab10(np.linspace(0, 1, len(x_labels)))
     color_map = {label: colors[i] for i, label in enumerate(x_labels)}
     
-    # Strip plot with colors by LD level
+    # Strip plot with colors by LD level (smaller points)
     for i, (label, data_dict) in enumerate(zip(x_labels, data_dicts)):
         for j, n in enumerate(individual_sizes):
             combined_label = f"{label}\nN={n}"
@@ -295,7 +298,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             plt.scatter(
                 x=np.random.normal(x_pos, 0.1, len(subset)),
                 y=subset["value"],
-                color=color_map[label], s=10, alpha=0.5
+                color=color_map[label], s=5, alpha=0.4  # Smaller points: s=5
             )
     
     # Error bars + mean dots + text annotations
@@ -307,14 +310,21 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         )
         plt.plot(
             i, row["mean"], marker="o", color="blue",
-            markersize=6, markeredgecolor="black",
+            markersize=5, markeredgecolor="black",
             markeredgewidth=0.5, zorder=6
         )
         
-        # Calculate fold change relative to baseline
+        # Determine which LD group this belongs to
+        current_ld_label = combined_label.split("\n")[0]
+        baseline_se = baseline_ses[current_ld_label]
+        
+        # Calculate fold change relative to baseline within the same LD group
         fold_change = row["se"] / baseline_se
         
-        if i == 0:
+        # Check if this is the first sample size in its LD group
+        is_first_in_group = combined_label.endswith(f"N={individual_sizes[0]}")
+        
+        if is_first_in_group:
             fold_text = ""
             box_color = 'white'
         else:
@@ -356,7 +366,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     # Add legend for LD levels
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w', 
-                                  markerfacecolor=color_map[label], markersize=10, label=label)
+                                  markerfacecolor=color_map[label], markersize=8, label=label)
                       for label in x_labels]
     plt.legend(handles=legend_handles, loc='upper right', fontsize=10)
     
