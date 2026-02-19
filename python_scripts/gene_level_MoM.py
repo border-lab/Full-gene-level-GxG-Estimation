@@ -123,7 +123,7 @@ def MoM_only_M(Z, y, nmc=40):
     p = m * (m - 1) / 2 
     
     # Random vectors for stochastic trace estimation
-    u = np.random.randn(n, nmc)
+    u = np.random.choice([-1, 1], size=(n, nmc))
     
     # D = Z ⊙ Z (element-wise square)
     ZZ = Z * Z
@@ -187,7 +187,7 @@ def MoM_only_M_standardized(Z, y, nmc=40):
     p = m * (m - 1) / 2 
     
     # Random vectors for stochastic trace estimation
-    u = np.random.randn(n, nmc)
+    u = np.random.choice([-1, 1], size=(n, nmc))
     
     # D = Z ⊙ Z (element-wise square)
     ZZ = Z * Z
