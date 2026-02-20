@@ -460,9 +460,9 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         plt.show()
 
 
-def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax, save_path=None):
+def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax):
     """
-    Plot relative errors across LD levels for a single sample size.
+    Plot relative errors across LD levels for a single sample size with regression line.
     
     Parameters:
     -----------
@@ -471,17 +471,22 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     col_num: column index (0 for σ²g×g, 1 for σ²e)
     real_value: true parameter value
     ymin, ymax: y-axis limits
-    save_path: optional path to save the figure
     """
-    # LD levels in desired order
+    from scipy import stats
+    
+    # LD levels in desired order (Low=0, Middle=1, High=2)
     ld_labels = ['Low LD', 'Middle LD', 'High LD']
     
-    # Gather data
+    # Gather data with numeric LD coding
     data_list = []
-    for label in ld_labels:
+    for i, label in enumerate(ld_labels):
         df = data_dicts_by_ld[label]
         col_values = df.iloc[:, col_num].values - real_value
-        data_list.append(pd.DataFrame({"value": col_values, "group": label}))
+        data_list.append(pd.DataFrame({
+            "value": col_values, 
+            "group": label,
+            "ld_numeric": i  # 0=Low, 1=Middle, 2=High
+        }))
     
     data = pd.concat(data_list, ignore_index=True)
     data["group"] = pd.Categorical(data["group"], categories=ld_labels, ordered=True)
@@ -494,6 +499,9 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     summary["ci95"] = 1.96 * summary["se"]
+    
+    # Linear regression: value ~ ld_numeric
+    slope, intercept, r_value, p_value, std_err = stats.linregress(data["ld_numeric"], data["value"])
     
     # x-axis positions
     x_positions = np.arange(len(ld_labels))
@@ -510,6 +518,11 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
             y=subset["value"],
             color=point_color, s=10, alpha=0.4
         )
+    
+    # Regression line
+    x_line = np.linspace(-0.3, 2.3, 100)
+    y_line = intercept + slope * x_line
+    plt.plot(x_line, y_line, color='red', linewidth=2, linestyle='-', label='Regression line')
     
     # Error bars + mean dots + text annotations
     for i, (label, row) in enumerate(summary.iterrows()):
@@ -553,8 +566,19 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     
     plt.xticks(ticks=x_positions, labels=ld_labels, fontsize=11)
     
-    # Add caption at bottom right
-    caption_text = "Error bars = 95% CI"
+    # Format p-value
+    if p_value < 0.001:
+        p_text = "p < 0.001"
+    else:
+        p_text = f"p = {p_value:.3f}"
+    
+    # Add regression statistics at bottom right
+    caption_text = (
+        f"Regression: β = {slope:.4f} (SE = {std_err:.4f})\n"
+        f"{p_text}, R² = {r_value**2:.3f}\n"
+        f"H₀: β = 0\n"
+        f"Error bars = 95% CI"
+    )
     plt.text(
         0.98, 0.02,
         caption_text,
@@ -565,10 +589,4 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     )
     
     plt.tight_layout()
-    
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=600, bbox_inches="tight")
-        print(f"Plot saved to: {save_path}")
-    else:
-        plt.show()
+    plt.show()
