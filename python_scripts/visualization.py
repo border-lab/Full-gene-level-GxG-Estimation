@@ -522,7 +522,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     # Regression line
     x_line = np.linspace(-0.3, 2.3, 100)
     y_line = intercept + slope * x_line
-    plt.plot(x_line, y_line, color='red', linewidth=2, linestyle='-', label='Regression line')
+    plt.plot(x_line, y_line, color='black', linewidth=2, linestyle='-', label='Regression line')
     
     # Error bars + mean dots + text annotations
     for i, (label, row) in enumerate(summary.iterrows()):
@@ -574,9 +574,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     
     # Add regression statistics at bottom right
     caption_text = (
-        f"Regression: β = {slope:.4f} (SE = {std_err:.4f})\n"
-        f"{p_text}, R² = {r_value**2:.3f}\n"
-        f"H₀: β = 0\n"
+        f"Regression: β = {slope:.4f} (P-value = {p_text:.4f})\n"
         f"Error bars = 95% CI"
     )
     plt.text(
