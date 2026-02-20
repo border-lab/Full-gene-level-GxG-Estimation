@@ -568,13 +568,13 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     
     # Format p-value
     if p_value < 0.001:
-        p_text = "p < 0.001"
+        p_text = "< 0.001"
     else:
-        p_text = f"p = {p_value:.3f}"
+        p_text = f"{p_value:.4f}"
     
     # Add regression statistics at bottom right
     caption_text = (
-        f"Regression: β = {slope:.4f} (P-value = {p_text:.4f})\n"
+        f"Regression: β = {slope:.4f} (P-value {p_text})\n"
         f"Error bars = 95% CI"
     )
     plt.text(
