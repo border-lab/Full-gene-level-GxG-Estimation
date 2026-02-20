@@ -458,3 +458,210 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         print(f"Plot saved to: {save_path}")
     else:
         plt.show()
+
+
+def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax, save_path=None):
+    """
+    Plot relative errors across LD levels for a single sample size.
+    
+    Parameters:
+    -----------
+    data_dicts_by_ld: dict with keys ['Low LD', 'Middle LD', 'High LD'] and values as DataFrames
+    individual_size: sample size (e.g., 1000, 2000, 4000, 8000)
+    col_num: column index (0 for σ²g×g, 1 for σ²e)
+    real_value: true parameter value
+    ymin, ymax: y-axis limits
+    save_path: optional path to save the figure
+    """
+    from scipy import stats
+    
+    def variance_reduction_ftest(baseline_data, current_data):
+        """One-tailed F-test for variance reduction."""
+        var_baseline = np.var(baseline_data, ddof=1)
+        var_current = np.var(current_data, ddof=1)
+        
+        n1 = len(baseline_data)
+        n2 = len(current_data)
+        
+        f_stat = var_baseline / var_current
+        df1 = n1 - 1
+        df2 = n2 - 1
+        
+        p_value = 1 - stats.f.cdf(f_stat, df1, df2)
+        
+        return f_stat, p_value
+    
+    # LD levels in desired order
+    ld_labels = ['Low LD', 'Middle LD', 'High LD']
+    
+    # Gather data
+    data_list = []
+    for label in ld_labels:
+        df = data_dicts_by_ld[label]
+        col_values = df.iloc[:, col_num].values - real_value
+        data_list.append(pd.DataFrame({"value": col_values, "group": label}))
+    
+    data = pd.concat(data_list, ignore_index=True)
+    data["group"] = pd.Categorical(data["group"], categories=ld_labels, ordered=True)
+    
+    # Compute summary statistics
+    summary = (
+        data.groupby("group", observed=True)["value"]
+        .agg(["mean", "std", "count"])
+        .loc[ld_labels]
+    )
+    summary["se"] = summary["std"] / np.sqrt(summary["count"])
+    summary["ci95"] = 1.96 * summary["se"]
+    
+    # Perform one-sample t-test for each group (mean != 0)
+    p_values_mean = {}
+    for label in ld_labels:
+        group_data = data[data["group"] == label]["value"].values
+        t_stat, p_val = stats.ttest_1samp(group_data, 0)
+        p_values_mean[label] = p_val
+    
+    summary["p_value_mean"] = summary.index.map(p_values_mean)
+    
+    # Perform F-test for variance reduction (compared to High LD as baseline)
+    baseline_label = 'High LD'
+    baseline_data = data[data["group"] == baseline_label]["value"].values
+    baseline_se = summary.loc[baseline_label, "se"]
+    
+    p_values_var = {}
+    f_stats = {}
+    for label in ld_labels:
+        if label == baseline_label:
+            p_values_var[label] = np.nan
+            f_stats[label] = np.nan
+        else:
+            current_data = data[data["group"] == label]["value"].values
+            f_stat, p_val = variance_reduction_ftest(baseline_data, current_data)
+            p_values_var[label] = p_val
+            f_stats[label] = f_stat
+    
+    summary["p_value_var"] = summary.index.map(p_values_var)
+    summary["f_stat"] = summary.index.map(f_stats)
+    
+    # x-axis positions
+    x_positions = np.arange(len(ld_labels))
+    
+    # Create figure
+    plt.figure(figsize=(8, 6))
+    
+    # Strip plot
+    point_color = 'gray'
+    for i, label in enumerate(ld_labels):
+        subset = data[data["group"] == label]
+        plt.scatter(
+            x=np.random.normal(i, 0.1, len(subset)),
+            y=subset["value"],
+            color=point_color, s=10, alpha=0.4
+        )
+    
+    # Error bars + mean dots + text annotations
+    for i, (label, row) in enumerate(summary.iterrows()):
+        # 95% CI error bars
+        plt.errorbar(
+            x=i, y=row["mean"], yerr=row["ci95"],
+            fmt="none", ecolor="red", elinewidth=2,
+            capsize=5, capthick=2, alpha=0.9, zorder=5
+        )
+        plt.plot(
+            i, row["mean"], marker="o", color="blue",
+            markersize=8, markeredgecolor="black",
+            markeredgewidth=0.5, zorder=6
+        )
+        
+        # Calculate fold change (compared to High LD)
+        fold_change = row["se"] / baseline_se
+        is_baseline = (label == baseline_label)
+        
+        # Significance for mean test
+        p_val_mean = row["p_value_mean"]
+        if p_val_mean < 0.001:
+            sig_mean = "***"
+        elif p_val_mean < 0.01:
+            sig_mean = "**"
+        elif p_val_mean < 0.05:
+            sig_mean = "*"
+        else:
+            sig_mean = "ns"
+        
+        # Significance for variance reduction test (F-test)
+        p_val_var = row["p_value_var"]
+        if is_baseline:
+            fold_text = ""
+            box_color = 'white'
+        else:
+            if p_val_var < 0.001:
+                sig_var = "†††"
+            elif p_val_var < 0.01:
+                sig_var = "††"
+            elif p_val_var < 0.05:
+                sig_var = "†"
+            else:
+                sig_var = ""
+            
+            fold_text = f"\n({fold_change:.2f}x){sig_var}"
+            
+            if fold_change < 1 and p_val_var < 0.05:
+                box_color = 'lightgreen'
+            elif fold_change < 1:
+                box_color = 'lightyellow'
+            else:
+                box_color = 'lightcoral'
+        
+        # Add significance stars for mean at top
+        plt.text(
+            i, ymax - 0.02 * (ymax - ymin),
+            sig_mean,
+            ha='center', va='top', fontsize=12, fontweight='bold'
+        )
+        
+        # Add text annotation
+        plt.text(
+            i, ymax - 0.10 * (ymax - ymin),
+            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
+            ha='center', va='top', fontsize=8,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor=box_color, edgecolor='gray', alpha=0.8)
+        )
+    
+    # Theta label
+    if col_num == 0:
+        theta = r"$\sigma^2_{g \times g}$"
+    elif col_num == 1:
+        theta = r"$\sigma^2_{e}$"
+    else:
+        theta = "Parameter"
+    
+    plt.axhline(0, color="gray", linestyle="--", linewidth=1)
+    plt.title(
+        f"Relative error of {theta} by LD Level (N={individual_size})\n"
+        f"(real value = {real_value})",
+        fontsize=12, pad=10
+    )
+    plt.ylim(ymin, ymax)
+    plt.xlabel("LD Level", fontsize=12)
+    plt.ylabel(f"Relative error: ({theta} - {real_value})", fontsize=12)
+    
+    plt.xticks(ticks=x_positions, labels=ld_labels, fontsize=11)
+    
+    # Add caption at bottom right
+    caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced vs High LD (F-test)\nError bars = 95% CI"
+    plt.text(
+        0.98, 0.02,
+        caption_text,
+        transform=plt.gca().transAxes,
+        ha='right', va='bottom',
+        fontsize=8,
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.9)
+    )
+    
+    plt.tight_layout()
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=600, bbox_inches="tight")
+        print(f"Plot saved to: {save_path}")
+    else:
+        plt.show()
