@@ -460,7 +460,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         plt.show()
 
 
-def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax):
+def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across LD levels for a single sample size with regression line.
     
@@ -471,10 +471,11 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     col_num: column index (0 for σ²g×g, 1 for σ²e)
     real_value: true parameter value
     ymin, ymax: y-axis limits
+    ax: matplotlib axis (optional, if None creates new figure)
     """
     from scipy import stats
     
-    # LD levels in desired order (Low=0, Middle=1, High=2)
+    # LD levels in desired order
     ld_labels = ['Low LD', 'Middle LD', 'High LD']
     
     # Gather data with numeric LD coding
@@ -485,7 +486,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
         data_list.append(pd.DataFrame({
             "value": col_values, 
             "group": label,
-            "ld_numeric": i  # 0=Low, 1=Middle, 2=High
+            "ld_numeric": i
         }))
     
     data = pd.concat(data_list, ignore_index=True)
@@ -500,20 +501,24 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     summary["ci95"] = 1.96 * summary["se"]
     
-    # Linear regression: value ~ ld_numeric
+    # Linear regression
     slope, intercept, r_value, p_value, std_err = stats.linregress(data["ld_numeric"], data["value"])
     
     # x-axis positions
     x_positions = np.arange(len(ld_labels))
     
-    # Create figure
-    plt.figure(figsize=(8, 6))
+    # Create figure or use provided axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        standalone = True
+    else:
+        standalone = False
     
     # Strip plot
     point_color = 'gray'
     for i, label in enumerate(ld_labels):
         subset = data[data["group"] == label]
-        plt.scatter(
+        ax.scatter(
             x=np.random.normal(i, 0.1, len(subset)),
             y=subset["value"],
             color=point_color, s=10, alpha=0.4
@@ -522,28 +527,27 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     # Regression line
     x_line = np.linspace(-0.3, 2.3, 100)
     y_line = intercept + slope * x_line
-    plt.plot(x_line, y_line, color='black', linewidth=2, linestyle='-', label='Regression line')
+    ax.plot(x_line, y_line, color='red', linewidth=2, linestyle='-')
     
     # Error bars + mean dots + text annotations
     for i, (label, row) in enumerate(summary.iterrows()):
-        # 95% CI error bars
-        plt.errorbar(
+        ax.errorbar(
             x=i, y=row["mean"], yerr=row["ci95"],
             fmt="none", ecolor="red", elinewidth=2,
             capsize=5, capthick=2, alpha=0.9, zorder=5
         )
-        plt.plot(
+        ax.plot(
             i, row["mean"], marker="o", color="blue",
             markersize=8, markeredgecolor="black",
             markeredgewidth=0.5, zorder=6
         )
         
         # Add text annotation
-        plt.text(
+        ax.text(
             i, ymax - 0.05 * (ymax - ymin),
             f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}",
-            ha='center', va='top', fontsize=9,
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.8)
+            ha='center', va='top', fontsize=8,
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.8)
         )
     
     # Theta label
@@ -554,37 +558,35 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     else:
         theta = "Parameter"
     
-    plt.axhline(0, color="gray", linestyle="--", linewidth=1)
-    plt.title(
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    ax.set_title(
         f"Relative error of {theta} by LD Level (N={individual_size})\n"
         f"(real value = {real_value})",
-        fontsize=12, pad=10
+        fontsize=10, pad=10
     )
-    plt.ylim(ymin, ymax)
-    plt.xlabel("LD Level", fontsize=12)
-    plt.ylabel(f"Relative error: ({theta} - {real_value})", fontsize=12)
-    
-    plt.xticks(ticks=x_positions, labels=ld_labels, fontsize=11)
+    ax.set_ylim(ymin, ymax)
+    ax.set_xlabel("LD Level", fontsize=10)
+    ax.set_ylabel(f"Relative error: ({theta} - {real_value})", fontsize=10)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(ld_labels, fontsize=10)
     
     # Format p-value
-    if p_value < 0.001:
-        p_text = "< 0.001"
-    else:
-        p_text = f"{p_value:.4f}"
+    p_display = "< 0.001" if p_value < 0.001 else f"{p_value:.4f}"
     
-    # Add regression statistics at bottom right
+    # Add regression statistics
     caption_text = (
-        f"Regression: β = {slope:.4f} (P-value {p_text})\n"
+        f"Regression: β = {slope:.4f} (P-value {p_display})\n"
         f"Error bars = 95% CI"
     )
-    plt.text(
+    ax.text(
         0.98, 0.02,
         caption_text,
-        transform=plt.gca().transAxes,
+        transform=ax.transAxes,
         ha='right', va='bottom',
-        fontsize=8,
-        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.9)
+        fontsize=7,
+        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.9)
     )
     
-    plt.tight_layout()
-    plt.show()
+    if standalone:
+        plt.tight_layout()
+        plt.show()
