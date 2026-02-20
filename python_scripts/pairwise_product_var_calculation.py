@@ -64,3 +64,12 @@ def calculate_varZiZj(X):
     # Extract upper triangular part (i < j) for array output
     rows, cols = np.triu_indices(m, k=1)
     return var_mtx[rows, cols]
+
+
+# Calculate mean r² for both datasets
+def get_mean_r2(genotype_matrix):
+    Z = (genotype_matrix - np.mean(genotype_matrix, axis=0)) / np.std(genotype_matrix, axis=0)
+    corr_matrix = np.corrcoef(Z, rowvar=False)
+    r2_matrix = corr_matrix ** 2
+    upper_tri = r2_matrix[np.triu_indices(r2_matrix.shape[0], k=1)]
+    return np.mean(upper_tri)

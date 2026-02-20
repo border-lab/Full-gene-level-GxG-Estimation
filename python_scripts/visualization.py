@@ -373,7 +373,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         elif p_val_mean < 0.05:
             sig_mean = "*"
         else:
-            sig_mean = "ns"
+            sig_mean = "NS"
         
         # Significance for variance reduction test (F-test)
         p_val_var = row["p_value_var"]
