@@ -43,6 +43,7 @@ def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
     return Z, y
 
 
+
 def simulate_Cholesky_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
     """
     Compute the GxG interaction kernel W from raw genotype data.
@@ -63,6 +64,90 @@ def simulate_Cholesky_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
     Lgxg = cholesky(s2gxg * W + stability* np.eye(n), lower=True)
     Le = cholesky(s2e * np.eye(n), lower=True)
     return  Lgxg, Le 
+
+
+def simulate_Cholesky_from_raw_correction(real_data, s2gxg=0.9, s2e=0.1, stability=1e-8):
+    """
+    Compute the GxG interaction kernel W from raw genotype data with LD correction.
+    
+    Parameters:
+    -----------
+    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
+    s2gxg: GxG variance component
+    s2e: residual variance component
+    stability: numerical stability term
+    
+    Returns:
+    --------
+    Lgxg: Cholesky factor of the GxG covariance component
+    Le: Cholesky factor of the residual covariance component
+    """
+    # Calculate correction factor
+    factor = calculate_correction_factor(real_data)
+    
+    # Standardize
+    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    Z_corr = Z / (factor ** 0.25)
+    
+    n, m = Z_corr.shape
+    
+    # Compute kernel using CORRECTED Z
+    KZ = Z_corr @ Z_corr.T
+    D = Z_corr * Z_corr
+    p = m * (m - 1) / 2
+    W = 0.5 * (KZ * KZ - D @ D.T) / p
+    
+    # Cholesky decomposition
+    Lgxg = cholesky(s2gxg * W + stability * np.eye(n), lower=True)
+    Le = cholesky(s2e * np.eye(n), lower=True)
+    
+    return Lgxg, Le
+
+
+def simulate_Cholesky_from_raw_sparse(real_data, s2gxg=0.9, s2e=0.1, causal_fraction=0.25,stability=1e-8, seed=None):
+    """
+    Compute the GxG interaction kernel W from raw genotype data using SPARSE causal SNPs.
+    Parameters:
+    -----------
+    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
+    s2gxg: variance component for GxG epistatic interactions
+    s2e: residual/environmental variance component
+    causal_fraction: fraction of SNPs that are causal (default 0.25)
+    stability: small value for numerical stability
+    seed: random seed for reproducibility
+    
+    Returns:
+    --------
+    Lgxg: Cholesky factor of the GxG covariance component (from causal SNPs)
+    Le: Cholesky factor of the residual covariance component
+    causal_indices: indices of causal SNPs
+    """
+
+    # Standardize ALL genotype data
+    Z_full = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    n, m = Z_full.shape
+    
+    # Select causal SNPs
+    m_causal = int(m * causal_fraction)
+    causal_indices = np.random.choice(m, size=m_causal, replace=False)
+    causal_indices = np.sort(causal_indices)
+    
+    # Extract causal SNPs
+    Z_causal = Z_full[:, causal_indices]
+    
+    # Compute kernel using ONLY causal SNPs
+    KZ_causal = Z_causal @ Z_causal.T
+    D_causal = Z_causal * Z_causal
+    p_causal = m_causal * (m_causal - 1) / 2
+    
+    # GxG interaction kernel from causal SNPs only
+    W_causal = 0.5 * (KZ_causal * KZ_causal - D_causal @ D_causal.T) / p_causal
+    
+    # Cholesky decomposition
+    Lgxg = cholesky(s2gxg * W_causal + stability * np.eye(n), lower=True)
+    Le = cholesky(s2e * np.eye(n), lower=True)
+    
+    return Lgxg, Le
 
 
 def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9, s2e=0.1):
@@ -101,7 +186,6 @@ def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9,
     y -= y.mean()
 
     return  Z, y
-
 
 
 def MoM_only_M(Z, y, nmc=40):
@@ -248,36 +332,6 @@ def MoM_only_M_standardized(Z, y, nmc=40):
     return x1[0], x1[1], A, scale
 
 
-def run_experiment_MC(X, n_mc=100, s2gxg=0.9, s2e=0.1):
-    """
-    Run Monte Carlo simulations to estimate GxG and residual variance components.
-    
-    parameters:
-    X: (n, m) raw genotype data
-    n_mc: number of Monte Carlo replicates
-    s2gxg: true GxG variance component
-    s2e: true residual variance component   
-
-    returns:
-    DataFrame with estimated GxG and residual variance components across replicates.
-    """
-    gxgs = []
-    es = []
-    
-    for _ in range(n_mc):
-        Z, y = simulate_from_raw_only_W(X, s2gxg=s2gxg, s2e=s2e)
-        gxg, e, _ = MoM_only_M(Z, y, nmc=40)
-        gxgs.append(gxg)
-        es.append(e)
-    
-    gxgs = np.array(gxgs).flatten()
-    es = np.array(es).flatten()
-    
-    return pd.DataFrame({"gxgs": gxgs, "es": es})
-
-
-
-
 def calculate_correction_factor(X):
     """
     Calculate the correction factor E[Var(Zi*Zj)] from genotype matrix X.
@@ -311,38 +365,31 @@ def calculate_correction_factor(X):
     
     return correction_factor
 
-def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
+def MoM_only_M_LD_Correction(X, Z, y, nmc=40):
     """
-    Method of Moments estimator for GxG variance component using only the epistatic kernel.
-
+    Method of Moments estimator for GxG variance component with LD correction.
+    
     Parameters:
     -----------
+    X: (n, m) original genotype matrix (0, 1, 2) for LD correction
     Z: (n, m) standardized genotype matrix
     y: (n,) phenotype vector
     nmc: number of Monte Carlo samples for trace estimation
-    X: (n, m) original genotype matrix (0, 1, 2) for LD correction (required if ld_correction=True)
-    ld_correction: whether to apply LD bias correction
     
     Returns:
     --------
     s2gxg: estimated GxG variance component
     s2e: estimated residual variance component
     A: 2x2 coefficient matrix from the moment equations
-    correction_factor: LD correction factor (if ld_correction=True)
     """
     n = Z.shape[0]
     m = Z.shape[1]
     p = m * (m - 1) / 2 
     
-    #  Correction
-    if ld_correction:
-        if X is None:
-            raise ValueError("X (original genotype matrix) is required for LD correction")
-        correction_factor = calculate_correction_factor(X)
-    else:
-        correction_factor = 1.0
-    
-    # Random vectors for stochastic trace estimation
+    # ====== LD Correction Factor ======
+    correction_factor = calculate_correction_factor(X)
+ 
+    # ====== Random vectors for stochastic trace estimation ======
     u = np.random.choice([-1, 1], size=(n, nmc))
     
     # D = Z ⊙ Z (element-wise square)
@@ -350,7 +397,7 @@ def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
     
     # Compute D @ D.T @ u for trace estimation
     Du = ZZ @ (ZZ.T @ u)
-
+    
     # Compute (K ⊙ K) @ u where K = Z @ Z.T
     KKu = np.zeros((n, nmc))
     for i in range(nmc):
@@ -358,8 +405,8 @@ def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
         M = Z.T @ Z_tilde
         ZM = Z @ M
         KKu[:, i] = np.sum(ZM * Z, axis=1)
-
-    #  Raw trace estimates 
+    
+    # ====== Raw trace estimates ======
     trW_raw = 0.5 * (np.mean(np.sum(u * KKu, axis=0)) - np.mean(np.sum(u * Du, axis=0))) / p
     
     trKK2 = np.mean(np.sum(KKu * KKu, axis=0))
@@ -370,12 +417,12 @@ def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
     # Quadratic forms
     yTy = y @ y
     yTWy_raw = 0.5 * (y.T @ (np.sum((Z @ (Z.T @ (y.reshape(-1, 1) * Z))) * Z, axis=1)) - (y @ (ZZ @ (ZZ.T @ y)))) / p
-
-    #  Apply correction
+    
+    # ====== Apply LD correction ======
     trW_app = trW_raw / correction_factor
     trW2_app = trW2_raw / (correction_factor ** 2)
     yTWy = yTWy_raw / correction_factor
-
+    
     # ====== Solve moment equations ======
     A = np.array([
         [trW2_app, trW_app],
@@ -389,7 +436,4 @@ def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
     
     x1 = np.linalg.solve(A, b)
     
-    if ld_correction:
-        return x1[0], x1[1], A, correction_factor
-    else:
-        return x1[0], x1[1], A
+    return x1[0], x1[1], A
