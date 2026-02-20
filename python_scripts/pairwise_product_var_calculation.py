@@ -66,10 +66,35 @@ def calculate_varZiZj(X):
     return var_mtx[rows, cols]
 
 
-# Calculate mean r² for both datasets
-def get_mean_r2(genotype_matrix):
-    Z = (genotype_matrix - np.mean(genotype_matrix, axis=0)) / np.std(genotype_matrix, axis=0)
-    corr_matrix = np.corrcoef(Z, rowvar=False)
-    r2_matrix = corr_matrix ** 2
-    upper_tri = r2_matrix[np.triu_indices(r2_matrix.shape[0], k=1)]
-    return np.mean(upper_tri)
+def calculate_correction_factor(X):
+    """
+    Calculate the correction factor E[Var(Zi*Zj)] from genotype matrix X.
+    
+    Returns:
+    --------
+    correction_factor: mean of Var(Zi*Zj) for all pairs
+    """
+    n, m = X.shape
+
+    # Allele frequency and covariance
+    p = np.sum(X, axis=0) / (2 * n)
+    p = np.clip(p, 0.01, 0.99)
+    sigma_matrix = np.cov(X, rowvar=False)
+    
+    # Broadcasting
+    pi = p[:, np.newaxis]
+    pj = p[np.newaxis, :]
+    
+    # Var(Zi*Zj) matrix
+    numerator = sigma_matrix * (1 - 2*pi) * (1 - 2*pj)
+    denominator = 4 * np.sqrt(pi * pj * (1 - pi) * (1 - pj))
+    
+    var_mtx = np.where(denominator > 1e-10, 
+                       1 + numerator / denominator, 
+                       1)
+
+    # Mean of upper triangle
+    rows, cols = np.triu_indices(m, k=1)
+    correction_factor = np.mean(var_mtx[rows, cols])
+    
+    return correction_factor

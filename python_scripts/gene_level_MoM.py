@@ -278,3 +278,118 @@ def run_experiment_MC(X, n_mc=100, s2gxg=0.9, s2e=0.1):
 
 
 
+def calculate_correction_factor(X):
+    """
+    Calculate the correction factor E[Var(Zi*Zj)] from genotype matrix X.
+    
+    Returns:
+    --------
+    correction_factor: mean of Var(Zi*Zj) for all pairs
+    """
+    n, m = X.shape
+
+    # Allele frequency and covariance
+    p = np.sum(X, axis=0) / (2 * n)
+    p = np.clip(p, 0.01, 0.99)
+    sigma_matrix = np.cov(X, rowvar=False)
+    
+    # Broadcasting
+    pi = p[:, np.newaxis]
+    pj = p[np.newaxis, :]
+    
+    # Var(Zi*Zj) matrix
+    numerator = sigma_matrix * (1 - 2*pi) * (1 - 2*pj)
+    denominator = 4 * np.sqrt(pi * pj * (1 - pi) * (1 - pj))
+    
+    var_mtx = np.where(denominator > 1e-10, 
+                       1 + numerator / denominator, 
+                       1)
+
+    # Mean of upper triangle
+    rows, cols = np.triu_indices(m, k=1)
+    correction_factor = np.mean(var_mtx[rows, cols])
+    
+    return correction_factor
+
+def MoM_only_M_LD_Correction(Z, y, nmc=40, X=None, ld_correction=False):
+    """
+    Method of Moments estimator for GxG variance component using only the epistatic kernel.
+
+    Parameters:
+    -----------
+    Z: (n, m) standardized genotype matrix
+    y: (n,) phenotype vector
+    nmc: number of Monte Carlo samples for trace estimation
+    X: (n, m) original genotype matrix (0, 1, 2) for LD correction (required if ld_correction=True)
+    ld_correction: whether to apply LD bias correction
+    
+    Returns:
+    --------
+    s2gxg: estimated GxG variance component
+    s2e: estimated residual variance component
+    A: 2x2 coefficient matrix from the moment equations
+    correction_factor: LD correction factor (if ld_correction=True)
+    """
+    n = Z.shape[0]
+    m = Z.shape[1]
+    p = m * (m - 1) / 2 
+    
+    #  Correction
+    if ld_correction:
+        if X is None:
+            raise ValueError("X (original genotype matrix) is required for LD correction")
+        correction_factor = calculate_correction_factor(X)
+    else:
+        correction_factor = 1.0
+    
+    # Random vectors for stochastic trace estimation
+    u = np.random.choice([-1, 1], size=(n, nmc))
+    
+    # D = Z ⊙ Z (element-wise square)
+    ZZ = Z * Z
+    
+    # Compute D @ D.T @ u for trace estimation
+    Du = ZZ @ (ZZ.T @ u)
+
+    # Compute (K ⊙ K) @ u where K = Z @ Z.T
+    KKu = np.zeros((n, nmc))
+    for i in range(nmc):
+        Z_tilde = u[:, i].reshape(-1, 1) * Z
+        M = Z.T @ Z_tilde
+        ZM = Z @ M
+        KKu[:, i] = np.sum(ZM * Z, axis=1)
+
+    #  Raw trace estimates 
+    trW_raw = 0.5 * (np.mean(np.sum(u * KKu, axis=0)) - np.mean(np.sum(u * Du, axis=0))) / p
+    
+    trKK2 = np.mean(np.sum(KKu * KKu, axis=0))
+    trDK = np.mean(np.sum(Du * KKu, axis=0))
+    trDD = np.mean(np.sum(Du * Du, axis=0))
+    trW2_raw = (trKK2 - 2 * trDK + trDD) / (4 * p**2)
+    
+    # Quadratic forms
+    yTy = y @ y
+    yTWy_raw = 0.5 * (y.T @ (np.sum((Z @ (Z.T @ (y.reshape(-1, 1) * Z))) * Z, axis=1)) - (y @ (ZZ @ (ZZ.T @ y)))) / p
+
+    #  Apply correction
+    trW_app = trW_raw / correction_factor
+    trW2_app = trW2_raw / (correction_factor ** 2)
+    yTWy = yTWy_raw / correction_factor
+
+    # ====== Solve moment equations ======
+    A = np.array([
+        [trW2_app, trW_app],
+        [trW_app, n]
+    ])
+    
+    b = np.array([
+        yTWy,
+        yTy
+    ]).reshape(-1, 1)
+    
+    x1 = np.linalg.solve(A, b)
+    
+    if ld_correction:
+        return x1[0], x1[1], A, correction_factor
+    else:
+        return x1[0], x1[1], A
