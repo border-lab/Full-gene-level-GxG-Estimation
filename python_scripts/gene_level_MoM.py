@@ -297,9 +297,9 @@ def calculate_correction_factor(X):
     pi = p[:, np.newaxis]
     pj = p[np.newaxis, :]
     
-    # Var(Zi*Zj) matrix
+    # Var(Zi*Zj) matrix - CORRECT FORMULA (no sqrt)
     numerator = sigma_matrix * (1 - 2*pi) * (1 - 2*pj)
-    denominator = 4 * np.sqrt(pi * pj * (1 - pi) * (1 - pj))
+    denominator = 4 * pi * pj * (1 - pi) * (1 - pj)  
     
     var_mtx = np.where(denominator > 1e-10, 
                        1 + numerator / denominator, 
