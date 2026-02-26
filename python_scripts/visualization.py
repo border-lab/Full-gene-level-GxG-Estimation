@@ -466,7 +466,7 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
     
     Parameters:
     -----------
-    data_dicts_by_ld: dict with keys ['Low LD', 'Middle LD', 'High LD'] and values as DataFrames
+    data_dicts_by_object: dict with keys and values as DataFrames
     individual_size: sample size (e.g., 1000, 2000, 4000, 8000)
     col_num: column index (0 for σ²g×g, 1 for σ²e)
     real_value: true parameter value
@@ -556,12 +556,11 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
     
     ax.axhline(0, color="gray", linestyle="--", linewidth=1)
     ax.set_title(
-        f"Relative error of {theta} by LD Level (N={individual_size})\n"
+        f"Relative error of {theta} (N={individual_size})\n"
         f"(real value = {real_value})",
         fontsize=10, pad=10
     )
     ax.set_ylim(ymin, ymax)
-    ax.set_xlabel("LD Level", fontsize=10)
     ax.set_ylabel(f"Relative error: ({theta} - {real_value})", fontsize=10)
     ax.set_xticks(x_positions)
     ax.set_xticklabels(object_labels, fontsize=10)
@@ -586,3 +585,187 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
     if standalone:
         plt.tight_layout()
         plt.show()
+
+
+def plot_relative_error_across_object_SE(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
+    """
+    Plot relative errors across object levels for a single sample size with regression line.
+    Includes statistical tests for both bias and efficiency (SE).
+    
+    Parameters:
+    -----------
+    data_dicts_by_object: dict with keys and values as DataFrames
+    object_labels: list of labels for each group
+    individual_size: sample size (e.g., 1000, 2000, 4000, 8000)
+    col_num: column index (0 for σ²g×g, 1 for σ²e)
+    real_value: true parameter value
+    ymin, ymax: y-axis limits
+    ax: matplotlib axis (optional, if None creates new figure)
+    """
+    
+    # Gather data with numeric coding
+    data_list = []
+    for i, label in enumerate(object_labels):
+        df = data_dicts_by_object[label]
+        col_values = df.iloc[:, col_num].values - real_value
+        data_list.append(pd.DataFrame({
+            "value": col_values, 
+            "group": label,
+            "group_numeric": i
+        }))
+    
+    data = pd.concat(data_list, ignore_index=True)
+    data["group"] = pd.Categorical(data["group"], categories=object_labels, ordered=True)
+    
+    # Compute summary statistics
+    summary = (
+        data.groupby("group", observed=True)["value"]
+        .agg(["mean", "std", "count"])
+        .loc[object_labels]
+    )
+    summary["se"] = summary["std"] / np.sqrt(summary["count"])
+    summary["ci95"] = 1.96 * summary["se"]
+    summary["var"] = summary["std"] ** 2
+    
+    # ========== Statistical Tests ==========
+    
+    # Test 1: Linear regression for BIAS
+    slope_bias, intercept_bias, r_bias, p_bias, std_err_bias = stats.linregress(
+        data["group_numeric"], data["value"]
+    )
+    
+    # Test 2: Test for EFFICIENCY (variance/SE differences)
+    # Method: Levene's test for equality of variances
+    groups_data = [data[data["group"] == label]["value"].values for label in object_labels]
+    levene_stat, levene_p = stats.levene(*groups_data)
+    
+    # Additional: Linear regression on variance across groups
+    group_numeric = np.arange(len(object_labels))
+    group_variances = summary["var"].values
+    group_ses = summary["se"].values
+    
+    if len(object_labels) > 2:
+        slope_var, intercept_var, r_var, p_var, std_err_var = stats.linregress(
+            group_numeric, group_variances
+        )
+        slope_se, intercept_se, r_se, p_se, std_err_se = stats.linregress(
+            group_numeric, group_ses
+        )
+    else:
+        # For 2 groups, use F-test for variance ratio
+        var1, var2 = group_variances[0], group_variances[1]
+        n1, n2 = summary["count"].values[0], summary["count"].values[1]
+        f_stat = var1 / var2 if var1 > var2 else var2 / var1
+        df1, df2 = (n1 - 1, n2 - 1) if var1 > var2 else (n2 - 1, n1 - 1)
+        p_var = 2 * (1 - stats.f.cdf(f_stat, df1, df2))  # Two-tailed
+        slope_var = group_variances[1] - group_variances[0]
+        slope_se = group_ses[1] - group_ses[0]
+        p_se = p_var  # Same test for 2 groups
+    
+    # x-axis positions
+    x_positions = np.arange(len(object_labels))
+    
+    # Create figure or use provided axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        standalone = True
+    else:
+        standalone = False
+    
+    # Strip plot
+    point_color = 'gray'
+    for i, label in enumerate(object_labels):
+        subset = data[data["group"] == label]
+        ax.scatter(
+            x=np.random.normal(i, 0.1, len(subset)),
+            y=subset["value"],
+            color=point_color, s=10, alpha=0.4
+        )
+    
+    # Regression line for bias
+    x_line = np.linspace(-0.3, len(object_labels) - 0.7, 100)
+    y_line = intercept_bias + slope_bias * x_line
+    ax.plot(x_line, y_line, color='red', linewidth=2, linestyle='-')
+    
+    # Error bars + mean dots + text annotations
+    for i, (label, row) in enumerate(summary.iterrows()):
+        ax.errorbar(
+            x=i, y=row["mean"], yerr=row["ci95"],
+            fmt="none", ecolor="red", elinewidth=2,
+            capsize=5, capthick=2, alpha=0.9, zorder=5
+        )
+        ax.plot(
+            i, row["mean"], marker="o", color="blue",
+            markersize=8, markeredgecolor="black",
+            markeredgewidth=0.5, zorder=6
+        )
+        
+        # Add text annotation
+        ax.text(
+            i, ymax - 0.05 * (ymax - ymin),
+            f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}",
+            ha='center', va='top', fontsize=8,
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.8)
+        )
+    
+    # Theta label
+    if col_num == 0:
+        theta = r"$\sigma^2_{g \times g}$"
+    elif col_num == 1:
+        theta = r"$\sigma^2_{e}$"
+    else:
+        theta = "Parameter"
+    
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    ax.set_title(
+        f"Relative error of {theta} (N={individual_size})\n"
+        f"(real value = {real_value})",
+        fontsize=10, pad=10
+    )
+    ax.set_ylim(ymin, ymax)
+    ax.set_ylabel(f"Relative error: ({theta} - {real_value})", fontsize=10)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(object_labels, fontsize=10)
+    
+    # Format p-values
+    p_bias_display = "< 0.001" if p_bias < 0.001 else f"{p_bias:.4f}"
+    p_var_display = "< 0.001" if p_var < 0.001 else f"{p_var:.4f}"
+    levene_p_display = "< 0.001" if levene_p < 0.001 else f"{levene_p:.4f}"
+    
+    # Add regression statistics with both tests
+    caption_text = (
+        f"Bias Test: β = {slope_bias:.4f} (P {p_bias_display})\n"
+        f"Efficiency Test (Levene): P {levene_p_display}\n"
+        f"SE trend: Δ = {slope_se:.4f} (P {p_var_display})\n"
+        f"Error bars = 95% CI"
+    )
+    ax.text(
+        0.98, 0.02,
+        caption_text,
+        transform=ax.transAxes,
+        ha='right', va='bottom',
+        fontsize=7,
+        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.9)
+    )
+    
+    if standalone:
+        plt.tight_layout()
+        plt.show()
+    
+    # Return test results for further analysis
+    return {
+        'bias': {
+            'slope': slope_bias,
+            'p_value': p_bias,
+            'significant': p_bias < 0.05
+        },
+        'efficiency': {
+            'levene_stat': levene_stat,
+            'levene_p': levene_p,
+            'se_trend': slope_se,
+            'variance_trend': slope_var,
+            'p_value': p_var,
+            'significant': levene_p < 0.05
+        },
+        'summary': summary
+    }
