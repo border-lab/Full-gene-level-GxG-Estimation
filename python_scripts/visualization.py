@@ -587,7 +587,7 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
         plt.show()
 
 
-def plot_relative_error_across_object(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
+def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across object levels for a single sample size with regression line.
     Includes statistical tests for both bias (β) and efficiency (γ).
