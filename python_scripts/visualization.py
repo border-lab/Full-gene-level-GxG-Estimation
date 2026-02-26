@@ -587,10 +587,10 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
         plt.show()
 
 
-def plot_relative_error_across_object_SE(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
+def plot_relative_error_across_object(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across object levels for a single sample size with regression line.
-    Includes statistical tests for both bias and efficiency (SE).
+    Includes statistical tests for both bias (β) and efficiency (γ).
     
     Parameters:
     -----------
@@ -625,42 +625,20 @@ def plot_relative_error_across_object_SE(data_dicts_by_object, object_labels, in
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     summary["ci95"] = 1.96 * summary["se"]
-    summary["var"] = summary["std"] ** 2
     
     # ========== Statistical Tests ==========
     
-    # Test 1: Linear regression for BIAS
+    # Test 1 (Bias): Linear regression for mean error
     slope_bias, intercept_bias, r_bias, p_bias, std_err_bias = stats.linregress(
         data["group_numeric"], data["value"]
     )
     
-    # Test 2: Test for EFFICIENCY (variance/SE differences)
-    # Method: Levene's test for equality of variances
-    groups_data = [data[data["group"] == label]["value"].values for label in object_labels]
-    levene_stat, levene_p = stats.levene(*groups_data)
-    
-    # Additional: Linear regression on variance across groups
+    # Test 2 (Efficiency): Linear regression for SE trend
     group_numeric = np.arange(len(object_labels))
-    group_variances = summary["var"].values
     group_ses = summary["se"].values
-    
-    if len(object_labels) > 2:
-        slope_var, intercept_var, r_var, p_var, std_err_var = stats.linregress(
-            group_numeric, group_variances
-        )
-        slope_se, intercept_se, r_se, p_se, std_err_se = stats.linregress(
-            group_numeric, group_ses
-        )
-    else:
-        # For 2 groups, use F-test for variance ratio
-        var1, var2 = group_variances[0], group_variances[1]
-        n1, n2 = summary["count"].values[0], summary["count"].values[1]
-        f_stat = var1 / var2 if var1 > var2 else var2 / var1
-        df1, df2 = (n1 - 1, n2 - 1) if var1 > var2 else (n2 - 1, n1 - 1)
-        p_var = 2 * (1 - stats.f.cdf(f_stat, df1, df2))  # Two-tailed
-        slope_var = group_variances[1] - group_variances[0]
-        slope_se = group_ses[1] - group_ses[0]
-        p_se = p_var  # Same test for 2 groups
+    slope_se, intercept_se, r_se, p_se, std_err_se = stats.linregress(
+        group_numeric, group_ses
+    )
     
     # x-axis positions
     x_positions = np.arange(len(object_labels))
@@ -729,14 +707,12 @@ def plot_relative_error_across_object_SE(data_dicts_by_object, object_labels, in
     
     # Format p-values
     p_bias_display = "< 0.001" if p_bias < 0.001 else f"{p_bias:.4f}"
-    p_var_display = "< 0.001" if p_var < 0.001 else f"{p_var:.4f}"
-    levene_p_display = "< 0.001" if levene_p < 0.001 else f"{levene_p:.4f}"
+    p_se_display = "< 0.001" if p_se < 0.001 else f"{p_se:.4f}"
     
-    # Add regression statistics with both tests
+    # Add regression statistics
     caption_text = (
-        f"Bias Test: β = {slope_bias:.4f} (P {p_bias_display})\n"
-        f"Efficiency Test (Levene): P {levene_p_display}\n"
-        f"SE trend: Δ = {slope_se:.4f} (P {p_var_display})\n"
+        f"Bias: β = {slope_bias:.4f} (P {p_bias_display})\n"
+        f"Efficiency: γ = {slope_se:.4f} (P {p_se_display})\n"
         f"Error bars = 95% CI"
     )
     ax.text(
@@ -752,20 +728,9 @@ def plot_relative_error_across_object_SE(data_dicts_by_object, object_labels, in
         plt.tight_layout()
         plt.show()
     
-    # Return test results for further analysis
+    # Return test results
     return {
-        'bias': {
-            'slope': slope_bias,
-            'p_value': p_bias,
-            'significant': p_bias < 0.05
-        },
-        'efficiency': {
-            'levene_stat': levene_stat,
-            'levene_p': levene_p,
-            'se_trend': slope_se,
-            'variance_trend': slope_var,
-            'p_value': p_var,
-            'significant': levene_p < 0.05
-        },
+        'bias': {'slope': slope_bias, 'p_value': p_bias},
+        'efficiency': {'slope': slope_se, 'p_value': p_se},
         'summary': summary
     }
