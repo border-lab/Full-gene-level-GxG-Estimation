@@ -460,7 +460,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         plt.show()
 
 
-def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_num, real_value, ymin, ymax, ax=None):
+def plot_relative_error_across_object(data_dicts_by_object, object_labels,individual_size, col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across LD levels for a single sample size with regression line.
     
@@ -473,15 +473,11 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     ymin, ymax: y-axis limits
     ax: matplotlib axis (optional, if None creates new figure)
     """
-    from scipy import stats
-    
-    # LD levels in desired order
-    ld_labels = ['Low LD', 'Middle LD', 'High LD']
     
     # Gather data with numeric LD coding
     data_list = []
-    for i, label in enumerate(ld_labels):
-        df = data_dicts_by_ld[label]
+    for i, label in enumerate(object_labels):
+        df = data_dicts_by_object[label]
         col_values = df.iloc[:, col_num].values - real_value
         data_list.append(pd.DataFrame({
             "value": col_values, 
@@ -490,13 +486,13 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
         }))
     
     data = pd.concat(data_list, ignore_index=True)
-    data["group"] = pd.Categorical(data["group"], categories=ld_labels, ordered=True)
+    data["group"] = pd.Categorical(data["group"], categories=object_labels, ordered=True)
     
     # Compute summary statistics
     summary = (
         data.groupby("group", observed=True)["value"]
         .agg(["mean", "std", "count"])
-        .loc[ld_labels]
+        .loc[object_labels]
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     summary["ci95"] = 1.96 * summary["se"]
@@ -505,7 +501,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     slope, intercept, r_value, p_value, std_err = stats.linregress(data["ld_numeric"], data["value"])
     
     # x-axis positions
-    x_positions = np.arange(len(ld_labels))
+    x_positions = np.arange(len(object_labels))
     
     # Create figure or use provided axis
     if ax is None:
@@ -516,7 +512,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     
     # Strip plot
     point_color = 'gray'
-    for i, label in enumerate(ld_labels):
+    for i, label in enumerate(object_labels):
         subset = data[data["group"] == label]
         ax.scatter(
             x=np.random.normal(i, 0.1, len(subset)),
@@ -568,7 +564,7 @@ def plot_relative_error_across_LD_levels(data_dicts_by_ld, individual_size, col_
     ax.set_xlabel("LD Level", fontsize=10)
     ax.set_ylabel(f"Relative error: ({theta} - {real_value})", fontsize=10)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(ld_labels, fontsize=10)
+    ax.set_xticklabels(object_labels, fontsize=10)
     
     # Format p-value
     p_display = "< 0.001" if p_value < 0.001 else f"{p_value:.4f}"
