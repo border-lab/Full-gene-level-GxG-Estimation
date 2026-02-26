@@ -587,15 +587,16 @@ def plot_relative_error_across_object(data_dicts_by_object, object_labels,indivi
         plt.show()
 
 
-def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels, individual_size, col_num, real_value, ymin, ymax, ax=None):
+def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels, individual_size, 
+                                       col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across object levels for a single sample size with regression line.
-    Includes statistical tests for both bias (β) and efficiency (γ).
+    Includes statistical tests for bias (β via linear regression) and efficiency (F-test).
     
     Parameters:
     -----------
     data_dicts_by_object: dict with keys and values as DataFrames
-    object_labels: list of labels for each group
+    object_labels: list of labels for each group (assumes first is baseline, last is comparison)
     individual_size: sample size (e.g., 1000, 2000, 4000, 8000)
     col_num: column index (0 for σ²g×g, 1 for σ²e)
     real_value: true parameter value
@@ -605,9 +606,11 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
     
     # Gather data with numeric coding
     data_list = []
+    errors_by_group = []
     for i, label in enumerate(object_labels):
         df = data_dicts_by_object[label]
         col_values = df.iloc[:, col_num].values - real_value
+        errors_by_group.append(col_values)
         data_list.append(pd.DataFrame({
             "value": col_values, 
             "group": label,
@@ -625,20 +628,28 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
     summary["ci95"] = 1.96 * summary["se"]
+    summary["var"] = summary["std"] ** 2
     
-    # ========== Statistical Tests ==========
-    
-    # Test 1 (Bias): Linear regression for mean error
+    # ========== Test 1: β (Bias) - Linear Regression ==========
     slope_bias, intercept_bias, r_bias, p_bias, std_err_bias = stats.linregress(
         data["group_numeric"], data["value"]
     )
     
-    # Test 2 (Efficiency): Linear regression for SE trend
-    group_numeric = np.arange(len(object_labels))
-    group_ses = summary["se"].values
-    slope_se, intercept_se, r_se, p_se, std_err_se = stats.linregress(
-        group_numeric, group_ses
-    )
+    # ========== Test 2: Efficiency - F-test ==========
+    # Compare first group vs last group (e.g., Small vs Large dataset)
+    var1 = summary["var"].iloc[0]   # First group (e.g., Small dataset)
+    var2 = summary["var"].iloc[-1]  # Last group (e.g., Large dataset)
+    n1 = int(summary["count"].iloc[0])
+    n2 = int(summary["count"].iloc[-1])
+    
+    # F-statistic: var1 / var2
+    # H0: σ1² = σ2²
+    # H1: σ1² > σ2² (first group has larger variance, i.e., last group is more efficient)
+    f_stat = var1 / var2
+    df1, df2 = n1 - 1, n2 - 1
+    
+    # One-tailed p-value (testing if var1 > var2)
+    p_f_one_tailed = 1 - stats.f.cdf(f_stat, df1, df2)
     
     # x-axis positions
     x_positions = np.arange(len(object_labels))
@@ -678,7 +689,6 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
             markeredgewidth=0.5, zorder=6
         )
         
-        # Add text annotation
         ax.text(
             i, ymax - 0.05 * (ymax - ymin),
             f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}",
@@ -707,12 +717,12 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
     
     # Format p-values
     p_bias_display = "< 0.001" if p_bias < 0.001 else f"{p_bias:.4f}"
-    p_se_display = "< 0.001" if p_se < 0.001 else f"{p_se:.4f}"
+    p_f_display = "< 0.001" if p_f_one_tailed < 0.001 else f"{p_f_one_tailed:.4f}"
     
-    # Add regression statistics
+    # Add statistics
     caption_text = (
         f"Bias: β = {slope_bias:.4f} (P {p_bias_display})\n"
-        f"Efficiency: γ = {slope_se:.4f} (P {p_se_display})\n"
+        f"Efficiency: F = {f_stat:.4f} (P {p_f_display}, one-tailed)\n"
         f"Error bars = 95% CI"
     )
     ax.text(
@@ -728,9 +738,8 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
         plt.tight_layout()
         plt.show()
     
-    # Return test results
     return {
-        'bias': {'slope': slope_bias, 'p_value': p_bias},
-        'efficiency': {'slope': slope_se, 'p_value': p_se},
+        'bias': {'beta': slope_bias, 'p_value': p_bias},
+        'efficiency': {'F': f_stat, 'p_value': p_f_one_tailed, 'var1': var1, 'var2': var2},
         'summary': summary
     }
