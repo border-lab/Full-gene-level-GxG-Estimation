@@ -365,6 +365,22 @@ def calculate_correction_factor(X):
     
     return correction_factor
 
+
+def calculate_per_snp_correction(real_data):
+    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    n, m = Z.shape
+    p = real_data.mean(axis=0) / 2
+    R = np.corrcoef(Z.T)
+    v = (1 - 2 * p)
+    V = np.outer(v, v)
+    d = 4 * np.sqrt(np.outer(p * (1-p), p * (1-p)))
+    delta = R * V / d
+    VarZiZj = 1 + delta  # (m, m)
+    # Per-SNP mean variance
+    per_snp_factor = VarZiZj.mean(axis=1)  # (m,)
+    return per_snp_factor
+
+
 def MoM_only_M_LD_Correction(X, Z, y, nmc=40):
     """
     Method of Moments estimator for GxG variance component with LD correction.

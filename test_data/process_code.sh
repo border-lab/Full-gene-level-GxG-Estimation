@@ -14,6 +14,11 @@ plink --bfile chr1_sub250 --recode A --out chr1_sub250
 plink --bfile chr1 --thin-count 125 --make-bed --out chr1_sub125
 plink --bfile chr1_sub125 --recode A --out chr1_sub125
 
+
+
+plink --bfile chr1 --thin-count 10 --make-bed --out chr1_sub10
+plink --bfile chr1_sub10 --recode A --out chr1_sub10
+
 #####pick the whole dataset used for simulation
 N=$(wc -l < chr1.bim)
 START=$(shuf -i 1-$((N-99999)) -n 1)

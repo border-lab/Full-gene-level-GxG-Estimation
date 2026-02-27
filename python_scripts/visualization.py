@@ -591,7 +591,7 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
                                        col_num, real_value, ymin, ymax, ax=None):
     """
     Plot relative errors across object levels for a single sample size with regression line.
-    Includes statistical tests for bias (β via linear regression) and efficiency (F-test).
+    Includes statistical tests for bias (β via linear regression) and SE (F-test).
     
     Parameters:
     -----------
@@ -635,7 +635,7 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
         data["group_numeric"], data["value"]
     )
     
-    # ========== Test 2: Efficiency - F-test ==========
+    # ========== Test 2: SE - F-test ==========
     # Compare first group vs last group (e.g., Small vs Large dataset)
     var1 = summary["var"].iloc[0]   # First group (e.g., Small dataset)
     var2 = summary["var"].iloc[-1]  # Last group (e.g., Large dataset)
@@ -722,7 +722,7 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
     # Add statistics
     caption_text = (
         f"Bias: β = {slope_bias:.4f} (P {p_bias_display})\n"
-        f"Efficiency: F = {f_stat:.4f} (P {p_f_display}, one-tailed)\n"
+        f"SE: F = {f_stat:.4f} (P {p_f_display}, one-tailed)\n"
         f"Error bars = 95% CI"
     )
     ax.text(
@@ -740,6 +740,6 @@ def plot_relative_error_across_object_withSE(data_dicts_by_object, object_labels
     
     return {
         'bias': {'beta': slope_bias, 'p_value': p_bias},
-        'efficiency': {'F': f_stat, 'p_value': p_f_one_tailed, 'var1': var1, 'var2': var2},
+        'SE': {'F': f_stat, 'p_value': p_f_one_tailed, 'var1': var1, 'var2': var2},
         'summary': summary
     }
