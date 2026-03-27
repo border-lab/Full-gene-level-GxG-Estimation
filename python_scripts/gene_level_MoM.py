@@ -43,7 +43,7 @@ def simulate_from_raw_only_W(real_data, s2gxg=0.9, s2e=0.1):
     return Z, y
 
 
-
+###raw method
 def simulate_Cholesky_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
     """
     Compute the GxG interaction kernel W from raw genotype data.
@@ -64,91 +64,6 @@ def simulate_Cholesky_from_raw(real_data,s2gxg=0.9,s2e=0.1,stability=1e-8):
     Lgxg = cholesky(s2gxg * W + stability* np.eye(n), lower=True)
     Le = cholesky(s2e * np.eye(n), lower=True)
     return  Lgxg, Le 
-
-
-def simulate_Cholesky_from_raw_correction(real_data, s2gxg=0.9, s2e=0.1, stability=1e-8):
-    """
-    Compute the GxG interaction kernel W from raw genotype data with LD correction.
-    
-    Parameters:
-    -----------
-    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
-    s2gxg: GxG variance component
-    s2e: residual variance component
-    stability: numerical stability term
-    
-    Returns:
-    --------
-    Lgxg: Cholesky factor of the GxG covariance component
-    Le: Cholesky factor of the residual covariance component
-    """
-    # Calculate correction factor
-    factor = calculate_correction_factor(real_data)
-    
-    # Standardize
-    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
-    Z_corr = Z / (factor ** 0.25)
-    
-    n, m = Z_corr.shape
-    
-    # Compute kernel using CORRECTED Z
-    KZ = Z_corr @ Z_corr.T
-    D = Z_corr * Z_corr
-    p = m * (m - 1) / 2
-    W = 0.5 * (KZ * KZ - D @ D.T) / p
-    
-    # Cholesky decomposition
-    Lgxg = cholesky(s2gxg * W + stability * np.eye(n), lower=True)
-    Le = cholesky(s2e * np.eye(n), lower=True)
-    
-    return Lgxg, Le
-
-
-def simulate_Cholesky_from_raw_sparse(real_data, s2gxg=0.9, s2e=0.1, causal_fraction=0.25,stability=1e-8, seed=None):
-    """
-    Compute the GxG interaction kernel W from raw genotype data using SPARSE causal SNPs.
-    Parameters:
-    -----------
-    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
-    s2gxg: variance component for GxG epistatic interactions
-    s2e: residual/environmental variance component
-    causal_fraction: fraction of SNPs that are causal (default 0.25)
-    stability: small value for numerical stability
-    seed: random seed for reproducibility
-    
-    Returns:
-    --------
-    Lgxg: Cholesky factor of the GxG covariance component (from causal SNPs)
-    Le: Cholesky factor of the residual covariance component
-    causal_indices: indices of causal SNPs
-    """
-
-    # Standardize ALL genotype data
-    Z_full = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
-    n, m = Z_full.shape
-    
-    # Select causal SNPs
-    m_causal = int(m * causal_fraction)
-    causal_indices = np.random.choice(m, size=m_causal, replace=False)
-    causal_indices = np.sort(causal_indices)
-    
-    # Extract causal SNPs
-    Z_causal = Z_full[:, causal_indices]
-    
-    # Compute kernel using ONLY causal SNPs
-    KZ_causal = Z_causal @ Z_causal.T
-    D_causal = Z_causal * Z_causal
-    p_causal = m_causal * (m_causal - 1) / 2
-    
-    # GxG interaction kernel from causal SNPs only
-    W_causal = 0.5 * (KZ_causal * KZ_causal - D_causal @ D_causal.T) / p_causal
-    
-    # Cholesky decomposition
-    Lgxg = cholesky(s2gxg * W_causal + stability * np.eye(n), lower=True)
-    Le = cholesky(s2e * np.eye(n), lower=True)
-    
-    return Lgxg, Le
-
 
 def simulate_from_raw_only_W_remove_sampling_err(real_data, Lgxg, Le, s2gxg=0.9, s2e=0.1):
     """
@@ -259,6 +174,95 @@ def MoM_only_M(Z, y, nmc=40):
     x1 = np.linalg.solve(A, b)
     
     return x1[0], x1[1], A 
+
+
+def simulate_Cholesky_from_raw_correction(real_data, s2gxg=0.9, s2e=0.1, stability=1e-8):
+    """
+    Compute the GxG interaction kernel W from raw genotype data with LD correction.
+    
+    Parameters:
+    -----------
+    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
+    s2gxg: GxG variance component
+    s2e: residual variance component
+    stability: numerical stability term
+    
+    Returns:
+    --------
+    Lgxg: Cholesky factor of the GxG covariance component
+    Le: Cholesky factor of the residual covariance component
+    """
+    # Calculate correction factor
+    factor = calculate_correction_factor(real_data)
+    
+    # Standardize
+    Z = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    Z_corr = Z / (factor ** 0.25)
+    
+    n, m = Z_corr.shape
+    
+    # Compute kernel using CORRECTED Z
+    KZ = Z_corr @ Z_corr.T
+    D = Z_corr * Z_corr
+    p = m * (m - 1) / 2
+    W = 0.5 * (KZ * KZ - D @ D.T) / p
+    
+    # Cholesky decomposition
+    Lgxg = cholesky(s2gxg * W + stability * np.eye(n), lower=True)
+    Le = cholesky(s2e * np.eye(n), lower=True)
+    
+    return Lgxg, Le
+
+
+def simulate_Cholesky_from_raw_sparse(real_data, s2gxg=0.9, s2e=0.1, causal_fraction=0.25,stability=1e-8, seed=None):
+    """
+    Compute the GxG interaction kernel W from raw genotype data using SPARSE causal SNPs.
+    Parameters:
+    -----------
+    real_data: (n, m) array of raw genotype data (n samples, m SNPs)
+    s2gxg: variance component for GxG epistatic interactions
+    s2e: residual/environmental variance component
+    causal_fraction: fraction of SNPs that are causal (default 0.25)
+    stability: small value for numerical stability
+    seed: random seed for reproducibility
+    
+    Returns:
+    --------
+    Lgxg: Cholesky factor of the GxG covariance component (from causal SNPs)
+    Le: Cholesky factor of the residual covariance component
+    causal_indices: indices of causal SNPs
+    """
+
+    # Standardize ALL genotype data
+    Z_full = (real_data - real_data.mean(axis=0)) / real_data.std(axis=0)
+    n, m = Z_full.shape
+    
+    # Select causal SNPs
+    m_causal = int(m * causal_fraction)
+    causal_indices = np.random.choice(m, size=m_causal, replace=False)
+    causal_indices = np.sort(causal_indices)
+    
+    # Extract causal SNPs
+    Z_causal = Z_full[:, causal_indices]
+    
+    # Compute kernel using ONLY causal SNPs
+    KZ_causal = Z_causal @ Z_causal.T
+    D_causal = Z_causal * Z_causal
+    p_causal = m_causal * (m_causal - 1) / 2
+    
+    # GxG interaction kernel from causal SNPs only
+    W_causal = 0.5 * (KZ_causal * KZ_causal - D_causal @ D_causal.T) / p_causal
+    
+    # Cholesky decomposition
+    Lgxg = cholesky(s2gxg * W_causal + stability * np.eye(n), lower=True)
+    Le = cholesky(s2e * np.eye(n), lower=True)
+    
+    return Lgxg, Le
+
+
+
+
+
 
 
 def MoM_only_M_standardized(Z, y, nmc=40):
