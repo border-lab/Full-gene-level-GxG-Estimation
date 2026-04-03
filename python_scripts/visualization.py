@@ -232,9 +232,15 @@ def read_MoM_results(individual_sizes, path, file_name, num_snp):
         data_dict[n] = df
         
     return data_dict
-def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual_sizes, col_num, real_value, ymin, ymax, x_axis_name="Group", save_path=None):
+
+def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual_sizes, col_num, real_value, ymin, ymax, x_axis_name="Group", title=None, save_path=None):
     """
     Plot relative errors with error bars and significance tests.
+    
+    Parameters:
+    -----------
+    title : str, optional
+        Custom title for the plot. If None, uses default title.
     """
     from scipy import stats
     
@@ -281,7 +287,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         .loc[combined_labels]
     )
     summary["se"] = summary["std"] / np.sqrt(summary["count"])
-    summary["ci95"] = 1.96 * summary["se"]  # 95% CI
+    summary["ci95"] = 1.96 * summary["se"]
     
     # Perform one-sample t-test for each group (mean != 0)
     p_values_mean = {}
@@ -292,7 +298,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     summary["p_value_mean"] = summary.index.map(p_values_mean)
     
-    # Perform F-test for variance reduction (compared to first in each LD group)
+    # Perform F-test for variance reduction
     p_values_var = {}
     f_stats = {}
     for label in x_labels:
@@ -344,9 +350,8 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
     
     # Error bars + mean dots + text annotations
     for i, (combined_label, row) in enumerate(summary.iterrows()):
-        # 95% CI error bars
         plt.errorbar(
-            x=i, y=row["mean"], yerr=row["ci95"],  # Using 95% CI
+            x=i, y=row["mean"], yerr=row["ci95"],
             fmt="none", ecolor="red", elinewidth=2,
             capsize=5, capthick=2, alpha=0.9, zorder=5
         )
@@ -356,15 +361,12 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             markeredgewidth=0.5, zorder=6
         )
         
-        # Determine which LD group this belongs to
         current_ld_label = combined_label.split("\n")[0]
         baseline_se = baseline_ses[current_ld_label]
         
-        # Calculate fold change
         fold_change = row["se"] / baseline_se
         is_first_in_group = combined_label.endswith(f"N={individual_sizes[0]}")
         
-        # Significance for mean test
         p_val_mean = row["p_value_mean"]
         if p_val_mean < 0.001:
             sig_mean = "***"
@@ -375,7 +377,6 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         else:
             sig_mean = "NS"
         
-        # Significance for variance reduction test (F-test)
         p_val_var = row["p_value_var"]
         if is_first_in_group:
             fold_text = ""
@@ -399,14 +400,12 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
             else:
                 box_color = 'lightcoral'
         
-        # Add significance stars for mean at top
         plt.text(
             i, ymax - 0.02 * (ymax - ymin),
             sig_mean,
             ha='center', va='top', fontsize=10, fontweight='bold'
         )
         
-        # Add text annotation
         plt.text(
             i, ymax - 0.08 * (ymax - ymin),
             f"Mean:{row['mean']:.3f}\nSE:{row['se']:.4f}{fold_text}",
@@ -419,7 +418,7 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         sep_pos = i * len(individual_sizes) - 0.5
         plt.axvline(sep_pos, color='gray', linestyle='--', linewidth=1, alpha=0.5)
     
-    # Theta label
+    # Theta label for y-axis
     if col_num == 0:
         theta = r"$\sigma^2_{g \times g}$"
     elif col_num == 1:
@@ -428,18 +427,21 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         theta = "Parameter"
     
     plt.axhline(0, color="gray", linestyle="--", linewidth=1)
-    plt.title(
-        f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n"
-        f"(real value = {real_value})",
-        fontsize=11, pad=10
-    )
+    
+    # Use custom title if provided, otherwise use default
+    if title is None:
+        title = (
+            f"Change of relative error of {theta} by {x_axis_name} and Sample Size\n"
+            f"(real value = {real_value})"
+        )
+    
+    plt.title(title, fontsize=11, pad=10)
     plt.ylim(ymin, ymax)
     plt.xlabel(f"{x_axis_name} / Sample Size", fontsize=12)
     plt.ylabel(f"Relative error: ({theta} - {real_value})", fontsize=12)
     
     plt.xticks(ticks=x_positions, labels=combined_labels, fontsize=9, rotation=0)
     
-    # Add caption at bottom right
     caption_text = "*/**/***: mean ≠ 0 (t-test)\n†/††/†††: SE reduced (one-tailed F-test)\nError bars = 95% CI"
     plt.text(
         0.98, 0.02,
@@ -458,7 +460,6 @@ def plot_relative_error_across_groups_combined(*data_dicts, x_labels, individual
         print(f"Plot saved to: {save_path}")
     else:
         plt.show()
-
 
 def plot_relative_error_across_object(data_dicts_by_object, object_labels,individual_size, col_num, real_value, ymin, ymax, ax=None):
     """
