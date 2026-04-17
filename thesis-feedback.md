@@ -14,12 +14,12 @@
 - The abstract and intro oversell. The method works under independence; for correlated SNPs (i.e., real data), SE doesn't decrease with n. Frame honestly: "works under independence, adjusted version removes bias for LD but consistency under strong LD remains open. (add to abstract page v; how to fix intro as we put forward the object)"
 - The introduction doesn't engage with the counter-argument that statistical epistatic variance is expected to be small in outbred populations. If the quantity being estimated is near zero in humans, the SE requirements change. (I have add this at the section of Epistasis as a Contributor to Missing Heritability, it is a strong evidence why we need consistent estimation)
 - specific about traits  wrt missing h2, gxg （add more example ? if it is, add at the end of The Challenge of Complex Trait Architecture and Epistasis as a Contributor to Missing Heritability）
-- bological framing of epistasis
+- bological framing of epistasis (add to the part of the Epistasis as a Contributor to Missing Heritability)
 
 ## Simulations: things to add
 
-- **Realistic effect sizes.** Everything uses $\sigma^2_{g \times g} = 0.9$. Rerun at $\sigma^2_{g \times g} = 0.05$ or $0.1$. Can the estimator detect it? If not, say so. -- how big of a sample would you need for 80% power as a function of sample size and h2_gxg 
-- **Include additive effects.** The model drops the additive component with a one-line justification. Run at least one simulation with $y = Z\beta + H\gamma + e$ and show what happens to the epistatic estimate when additive variance is present but unmodeled. 
+- **Realistic effect sizes.** Everything uses $\sigma^2_{g \times g} = 0.9$. Rerun at $\sigma^2_{g \times g} = 0.05$ or $0.1$. Can the estimator detect it? If not, say so. -- how big of a sample would you need for 80% power as a function of sample size and h2_gxg (add simulation Performance under Realistic effect sizes, 80% power unclear,)
+- **Include additive effects.** The model drops the additive component with a one-line justification. Run at least one simulation with $y = Z\beta + H\gamma + e$ and show what happens to the epistatic estimate when additive variance is present but unmodeled. (added to the result part, have necessity to remove the unjusted result part?)
 - adding h2 across multiple genes 
 
 ## Results: things to explain
@@ -28,7 +28,7 @@
 - The counterintuitive finding that SE decreases with increasing m for contiguous SNPs is flagged but left without even speculation. A likely explanation: larger m dilutes LD structure by including more distantly-spaced SNPs. If true, this tells you something important about how the method interacts with LD blocks. Can you propose a potential experiment?
 
 ## Method concerns
-- The adjusted estimator requires $\mu_{ij}$ and $\sigma^2_{ij}$ for all SNP pairs. Clarify: are these estimated from data or computed from known allele frequencies? If from data, what sample size is needed for stable pairwise LD estimates?
+- The adjusted estimator requires $\mu_{ij}$ and $\sigma^2_{ij}$ for all SNP pairs. Clarify: are these estimated from data or computed from known allele frequencies? If from data, what sample size is needed for stable pairwise LD estimates? (It can be directed computed form induvidual level data)
 
 ## Discussion
 
