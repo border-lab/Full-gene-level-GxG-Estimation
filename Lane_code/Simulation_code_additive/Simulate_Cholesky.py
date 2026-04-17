@@ -29,13 +29,13 @@ Lgxg, La= simulate_Cholesky_from_std_withadd(SNP, s2gxg, s2a, s2e)
 
 # Save Lgxg
 save_dir = "/home/ziyanzha/MOM_within_gene/Whole_model/Cholesky_Lgxg"
-save_path = f"{save_dir}/Lgxg_{mode}_n{n}_m{m}_s2gxg{s2gxg}_s2e{s2e}_s2a{s2a}.npy"
+save_path = f"{save_dir}/Lgxg_{mode}_n{n}_m{m}_s2a{s2a}_s2gxg{s2gxg}_s2e{s2e}.npy"
 np.save(save_path, Lgxg)
 
 
 # Save La
 save_dir_La = "/home/ziyanzha/MOM_within_gene/Whole_model/Cholesky_La"
-save_path = f"{save_dir_La}/La_{mode}_n{n}_m{m}_s2gxg{s2gxg}_s2e{s2e}_s2a{s2a}.npy"
+save_path = f"{save_dir_La}/La_{mode}_n{n}_m{m}_s2a{s2a}_s2gxg{s2gxg}_s2e{s2e}.npy"
 
 np.save(save_path, La)
 

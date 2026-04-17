@@ -7,6 +7,5 @@ fi
 
 filename=$1
 
-cat /home/ziyanzha/MOM_within_gene/Sparse_model/result/${filename}/rep*.txt >/home/ziyanzha/MOM_within_gene/Sparse_model/result/${filename}.txt
+cat /home/ziyanzha/MOM_within_gene/Sparse_model/result/${filename}/rep*.txt > /home/ziyanzha/MOM_within_gene/Sparse_model/result/${filename}.txt
 
-python3 /home/ziyanzha/MOM_within_gene/Sparse_model/result/calc_stats.py /home/ziyanzha/MOM_within_gene/Sparse_model/result/${filename}.txt
