@@ -13,14 +13,14 @@
 - The space complexity improvement ($O(nm)$ vs $O(n^2)$) is the strongest selling point. An $n \times n$ GRM can't even be stored at biobank scale. The abstract mentions $O(nm^2)$ time but buries the space result. Foreground it. (add to abstract page v; emphasize in the text)
 - The abstract and intro oversell. The method works under independence; for correlated SNPs (i.e., real data), SE doesn't decrease with n. Frame honestly: "works under independence, adjusted version removes bias for LD but consistency under strong LD remains open. (add to abstract page v; how to fix intro as we put forward the object)"
 - The introduction doesn't engage with the counter-argument that statistical epistatic variance is expected to be small in outbred populations. If the quantity being estimated is near zero in humans, the SE requirements change. (I have add this at the section of Epistasis as a Contributor to Missing Heritability, it is a strong evidence why we need consistent estimation)
-- specific about traits  wrt missing h2, gxg
+- specific about traits  wrt missing h2, gxg （add more example ? if it is, add at the end of The Challenge of Complex Trait Architecture and Epistasis as a Contributor to Missing Heritability）
 - bological framing of epistasis
 
 ## Simulations: things to add
 
 - **Realistic effect sizes.** Everything uses $\sigma^2_{g \times g} = 0.9$. Rerun at $\sigma^2_{g \times g} = 0.05$ or $0.1$. Can the estimator detect it? If not, say so. -- how big of a sample would you need for 80% power as a function of sample size and h2_gxg 
 - **Include additive effects.** The model drops the additive component with a one-line justification. Run at least one simulation with $y = Z\beta + H\gamma + e$ and show what happens to the epistatic estimate when additive variance is present but unmodeled. 
-- adding h2 across multiple genes
+- adding h2 across multiple genes 
 
 ## Results: things to explain
 
@@ -49,3 +49,4 @@ need more hypotheses to explain mysterious findings, propose experiments to test
 ## meeting
 1. The cholesky problem
 2. Simulation code
+3. add cite to support gene-level episatis
