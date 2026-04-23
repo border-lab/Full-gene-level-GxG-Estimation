@@ -24,7 +24,7 @@
 
 ## Results: things to explain
 
-- The non-monotonic bias in sparse-SNP results is unexplained. At minimum offer a hypothesis.
+- The non-monotonic bias in sparse-SNP results is unexplained. At minimum offer a hypothesis. more replicates
 - The counterintuitive finding that SE decreases with increasing m for contiguous SNPs is flagged but left without even speculation. A likely explanation: larger m dilutes LD structure by including more distantly-spaced SNPs. If true, this tells you something important about how the method interacts with LD blocks. Can you propose a potential experiment?
 
 ## Method concerns
