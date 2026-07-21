@@ -41,7 +41,13 @@ esttag = gene_subset_tag(args.estimate, G)      # "" or "_est1-2"
 # while the phenotype below was simulated from the full G-gene kernel: the fit
 # is deliberately misspecified.  esttag is "" for the all-genes fit, so that
 # case loads the same full W as before.
-W = np.load(f"/home/ziyanzha/MOM_within_gene/stored_genotype/W_{mode}_n{n}_m{m}_{split}{esttag}.npy")
+w_path = f"/home/ziyanzha/MOM_within_gene/stored_genotype/W_{mode}_n{n}_m{m}_{split}{esttag}.npy"
+if not os.path.exists(w_path):
+    raise FileNotFoundError(
+        f"estimation kernel not found: {w_path}\n"
+        f"The Cholesky step must have been run with the SAME --ratio and "
+        f"--estimate (split={split}, esttag={esttag or '<none>'}).")
+W = np.load(w_path)
 
 # Load phenotype (s2gxg_s2e order).  Its tag carries NO est suffix -- the
 # phenotype depends only on the full kernel, so one set is shared across every

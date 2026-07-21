@@ -157,6 +157,14 @@ def parse_gene_subset(spec, G):
     MISSPECIFIED fit that asks how much of s2gxg a partial gene panel recovers.
     None / "" / "all" returns None, meaning "use every gene" (the correctly
     specified fit, i.e. the pipeline's previous behaviour).
+
+    An EXPLICIT full list ("1,2,3,4,5" at G=5) is NOT collapsed to None: it
+    still returns every index, so W_est is built and cached under the matching
+    _est1-2-3-4-5 tag.  Collapsing it would make this function disagree with the
+    pipeline's shell-side tag (which cannot tell "all genes" from "some genes"),
+    and the estimation step would then write results to the UN-suffixed
+    directory while the combine step read the suffixed one -- yielding an empty
+    combined .txt next to a full result dir.  Only an EMPTY spec means "all".
     """
     if spec is None:
         return None
@@ -174,18 +182,18 @@ def parse_gene_subset(spec, G):
     bad = [i for i in idx if i < 1 or i > G]
     if bad:
         raise ValueError(f"--estimate indices {bad} out of range 1..{G}.")
-    idx = sorted(set(idx))
-    if len(idx) == G:
-        return None                          # all genes == no subsetting
-    return [i - 1 for i in idx]              # to 0-based
+    return [i - 1 for i in sorted(set(idx))]     # to 0-based
 
 
 def gene_subset_tag(spec, G):
     """Filename suffix for the estimation subset: "" (all genes) or "_est1-2".
 
     Built from the RAW --estimate string so the pipeline shell script can
-    reproduce it with `tr`, exactly like gene_split_tag.  Empty for the
-    all-genes fit, so existing all-genes paths keep their current names.
+    reproduce it with `tr`, exactly like gene_split_tag.  Empty ONLY when the
+    spec itself is empty -- an explicit "1,2,3,4,5" still tags as
+    _est1-2-3-4-5, because the shell side cannot detect "this list happens to
+    be every gene" and the two must agree on every path.  G is accepted for
+    signature symmetry with parse_gene_subset but deliberately unused.
     """
     if spec is None:
         return ""
@@ -193,8 +201,6 @@ def gene_subset_tag(spec, G):
     if s == "" or s.lower() in ("all", "none"):
         return ""
     parts = [p for p in s.replace(",", " ").split() if p]
-    if len(set(parts)) == G:
-        return ""
     return "_est" + "-".join(parts)
 
 

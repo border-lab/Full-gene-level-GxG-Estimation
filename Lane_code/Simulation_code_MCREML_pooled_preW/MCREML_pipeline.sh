@@ -41,6 +41,11 @@ RATIO="0.1,0.2,0.3,0.2,0.2"
 # asks how much of s2gxg a partial gene panel recovers.  Leave EMPTY
 # (ESTIMATE="") to fit with all G genes (the correctly specified model).
 #
+# Listing every gene explicitly (ESTIMATE="1,2,3,4,5" at G=5) is also a valid
+# correctly-specified run -- W_est then equals W_full and pair_share is 1 -- but
+# it is NOT the same as ESTIMATE="": it tags every output _est1-2-3-4-5, so use
+# it when you want the all-genes baseline filed alongside the subset runs.
+#
 # Because W_est is normalized by its OWN pair total (tr(W_est) = N, i.e. the
 # same Pooled Model simply run on the genes you have), the estimate is
 # ATTENUATED: expect s2gxg_hat ~ S2GXG * P_est/P_full, where P_est/P_full is the
