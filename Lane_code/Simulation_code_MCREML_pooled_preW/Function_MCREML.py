@@ -149,6 +149,55 @@ def gene_split_tag(G, ratio_str=None):
     return f"G{G}_r" + "-".join(p for p in s.replace(",", " ").split() if p)
 
 
+def parse_gene_subset(spec, G):
+    """1-based gene indices to USE AT ESTIMATION -> sorted 0-based list.
+
+    "1,2" means the estimation kernel is built from the front two genes only,
+    while the phenotype is still simulated from ALL G genes -- a deliberately
+    MISSPECIFIED fit that asks how much of s2gxg a partial gene panel recovers.
+    None / "" / "all" returns None, meaning "use every gene" (the correctly
+    specified fit, i.e. the pipeline's previous behaviour).
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, str):
+        s = spec.strip()
+        if s == "" or s.lower() in ("all", "none"):
+            return None
+        parts = [p for p in s.replace(",", " ").split() if p]
+        idx = [int(p) for p in parts]
+    else:
+        idx = [int(i) for i in spec]
+
+    if len(idx) == 0:
+        return None
+    bad = [i for i in idx if i < 1 or i > G]
+    if bad:
+        raise ValueError(f"--estimate indices {bad} out of range 1..{G}.")
+    idx = sorted(set(idx))
+    if len(idx) == G:
+        return None                          # all genes == no subsetting
+    return [i - 1 for i in idx]              # to 0-based
+
+
+def gene_subset_tag(spec, G):
+    """Filename suffix for the estimation subset: "" (all genes) or "_est1-2".
+
+    Built from the RAW --estimate string so the pipeline shell script can
+    reproduce it with `tr`, exactly like gene_split_tag.  Empty for the
+    all-genes fit, so existing all-genes paths keep their current names.
+    """
+    if spec is None:
+        return ""
+    s = str(spec).strip()
+    if s == "" or s.lower() in ("all", "none"):
+        return ""
+    parts = [p for p in s.replace(",", " ").split() if p]
+    if len(set(parts)) == G:
+        return ""
+    return "_est" + "-".join(parts)
+
+
 # ------------------------------------------------- epistasis GRM (within-gene)
 def _within_gene_sum(Zg, pair_batch_size=5000):
     """UN-normalized within-gene epistasis GRM  S = sum_{a<b} h_ab h_ab'.
@@ -208,36 +257,99 @@ def build_W_pooled(Z_list, pair_batch_size=5000):
     return W
 
 
+def build_W_pooled_with_subset(Z_list, subset, pair_batch_size=5000):
+    """Full pooled GRM and a SUBSET GRM built from the same single pass.
+
+    W_full = (1/P_full) sum_{g=1}^G S_g          -- simulate the phenotype from this
+    W_est  = (1/P_est ) sum_{g in subset} S_g    -- fit the REML model with this
+
+    Both are normalized by their OWN pair total, so tr = N for each and W_est is
+    just "the same Pooled Model run on the genes you actually have".  Because
+    the truth is s2gxg * W_full and the fit only spans the subset's genes, the
+    fitted s2gxg is attenuated: if the omitted genes' kernels are near-orthogonal
+    to the retained ones, E[s2gxg_hat] ~ s2gxg * (P_est / P_full), i.e. the
+    subset's SHARE OF WITHIN-GENE PAIRS.  Multiply the estimate by
+    P_full / P_est to put it back on the full-panel scale.
+
+    subset is a 0-based index list (parse_gene_subset); None gives W_est = None.
+    Returns (W_full, W_est, P_full, P_est).  The per-gene sums S_g are formed
+    once and accumulated into both totals, so the subset costs one extra n-by-n
+    array and no extra genotype work.
+    """
+    n = Z_list[0].shape[0]
+    sel = None if subset is None else set(subset)
+
+    W_full = np.zeros((n, n))
+    W_est = None if sel is None else np.zeros((n, n))
+    P_full = 0
+    P_est = 0
+
+    for g, Zg in enumerate(Z_list):
+        if Zg.shape[1] < 2:                  # a 1-SNP gene has no within-gene pair
+            continue
+        S, pg = _within_gene_sum(Zg, pair_batch_size=pair_batch_size)
+        W_full += S
+        P_full += pg
+        if sel is not None and g in sel:
+            W_est += S
+            P_est += pg
+
+    if P_full == 0:
+        raise ValueError("No gene block has >= 2 SNPs; increase m/G.")
+    W_full /= P_full
+    if sel is not None:
+        if P_est == 0:
+            raise ValueError(
+                "No gene in --estimate has >= 2 SNPs, so the estimation kernel "
+                "would be empty; pick genes with more SNPs.")
+        W_est /= P_est
+    return W_full, W_est, P_full, P_est
+
+
 # ------------------------------------------------------------- simulation
 def simulate_Cholesky_gxg(real_data, G, s2gxg=0.5, s2e=0.5, stability=1e-10,
-                          ratio=None):
-    """Cholesky factor of the pooled epistasis covariance, plus the GRM W itself.
+                          ratio=None, subset=None):
+    """Cholesky factor of the pooled epistasis covariance, plus the GRMs.
 
     The m SNPs of real_data are column-standardized and split into G contiguous
-    genes (split_into_genes -> several Z), and the pooled within-gene kernel is
-    built by build_W_pooled.  ratio (see parse_ratio / split_into_genes) sets
-    the per-gene share of SNPs; None keeps the equal split.
-    Returns (Lgxg, W, w_build_time) with
+    genes (split_into_genes -> several Z), and the pooled within-gene kernels
+    are built by build_W_pooled_with_subset.  ratio (see parse_ratio) sets the
+    per-gene share of SNPs; None keeps the equal split.
 
-        Lgxg Lgxg' = s2gxg W .
+    The phenotype is ALWAYS simulated from the full-panel kernel:
 
-    W (deterministic per (genotype, G)) is returned too so the caller can cache
-    it once for the estimation step's dense mat-vec.  w_build_time is the
-    wall-clock seconds spent building W only (tracked separately from the
-    downstream estimation time).
+        Lgxg Lgxg' = s2gxg W_full .
+
+    subset (0-based gene indices, see parse_gene_subset) additionally builds the
+    ESTIMATION kernel W_est from those genes only -- the misspecified fit.  It
+    never touches Lgxg, so simulation is unchanged by it.
+
+    Returns (Lgxg, W_full, W_est, info) where W_est is None when subset is None
+    and info is a dict with the gene sizes, pair totals P_full / P_est, the
+    expected attenuation P_est/P_full, and the W build time in seconds (tracked
+    separately from the downstream estimation time).
     """
     Za = additive_design(real_data)
     n, m = Za.shape
 
     genes = split_into_genes(Za, G, ratio=ratio)   # several Z, one per gene
-    print(f"gene sizes: {[g.shape[1] for g in genes]}")
+    sizes = [g.shape[1] for g in genes]
 
     t_start = time.perf_counter()
-    W = build_W_pooled(genes)
+    W_full, W_est, P_full, P_est = build_W_pooled_with_subset(genes, subset)
     w_build_time = time.perf_counter() - t_start
 
-    Lgxg = cholesky(s2gxg * W + stability * np.eye(n), lower=True)
-    return Lgxg, W, w_build_time
+    info = {
+        "gene_sizes": sizes,
+        "subset": None if subset is None else [g + 1 for g in subset],
+        "P_full": P_full,
+        "P_est": P_est if subset is not None else P_full,
+        "pair_share": 1.0 if subset is None else P_est / P_full,
+        "w_build_time": w_build_time,
+    }
+
+    Lgxg = cholesky(s2gxg * W_full + stability * np.eye(n), lower=True)
+    return Lgxg, W_full, W_est, info
 
 
 def simulate_remove_sampling_err(Lgxg, n, s2gxg=0.5, s2e=0.5):
