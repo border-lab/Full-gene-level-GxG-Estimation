@@ -23,7 +23,18 @@ import time
 # (C_METHOD) and both simulation and estimator call it on the same genotype,
 # so the two sides differ by the rank-r truncation alone.
 #
-# tr(W) != n and W 1 != 0: dividing by a scalar fixes only the scale.
+# EVERYTHING RUNS IN THE CONTRAST SPACE  P_c = I - 11'/n.  The phenotype, the
+# component draws and the Hutchinson probes are centered, and the W apply is
+# wrapped in P_c on both sides, so the epistasis kernel is effectively
+# P_c W P_c.  Two payoffs: it is proper REML with an intercept (centered probes
+# estimate the RESTRICTED trace tr(P_c V^-1 K_i), which supplies the -1/s2e
+# correction on the residual component), and it removes the all-ones direction,
+# which carries ~85% of lam_max(W) and was pinning s2gxg against the
+# positive-definiteness boundary under a null.  K_a and K_d need no wrapping:
+# their designs are column-standardized, so K 1 = 0 already.  c is defined
+# through the CENTERED per-pair variance, so the normalization is unchanged.
+#
+# tr(W) != n: dividing by a scalar fixes only the scale.
 # h_ab pairs ADDITIVE columns; dominance enters through K_d alone.
 ####################################################################
 
@@ -72,6 +83,17 @@ def _standardize_cols(M, stability_std=1e-12):
     sd = M.std(axis=0)
     sd = np.where(sd < stability_std, 1.0, sd)
     return (M - mu) / sd
+
+
+def _center_cols(B):
+    """Project onto the contrast space: subtract the column mean.
+
+    P_c = I - 11'/n applied column-wise.  Every kernel here already annihilates
+    1 (K_a and K_d because their designs are column-standardized, W because the
+    apply is wrapped), so the model lives entirely in this space and the
+    1-direction carries no information.
+    """
+    return B - B.mean(axis=0, keepdims=True)
 
 
 def additive_design(real_data):
@@ -518,10 +540,13 @@ def simulate_phenotype(La, Ld, Lgxg, n, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
                        return_realized=False, force_realized=True):
     """Draw one phenotype  y = g_a + g_d + g_gxg + e,
 
-        g_a = La u1 ,  g_d = Ld u2 ,  g_gxg = Lgxg u3 ,  e = sqrt(s2e) u4 ,
+        g_a = P_c La u1 ,        g_d = P_c Ld u2 ,
+        g_gxg = P_c Lgxg u3 ,    e = P_c sqrt(s2e) u4 ,
 
-    the four draws independent.  Returns y, or (y, V_ell, V_a, V_d, V_e) with
-    return_realized=True; all Var-hat at ddof=0.
+    the four draws independent and CENTERED.  Centering a draw from W is, in
+    distribution, a draw from P_c W P_c -- the kernel the estimator applies --
+    so the Cholesky factors are unchanged.  Returns y, or
+    (y, V_ell, V_a, V_d, V_e) with return_realized=True; all Var-hat at ddof=0.
 
     Because Lgxg Lgxg' = (s2gxg/(P c)) H H', g_gxg has exactly the law of
     H gamma with gamma ~ N(0, (s2gxg/(P c)) I_P) without ever forming H; the
@@ -555,10 +580,13 @@ def simulate_phenotype(La, Ld, Lgxg, n, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
     u3 = np.random.randn(n)
     u4 = np.random.randn(n)
 
-    a = La @ u1                           # additive effect   ~ N(0, s2a K_a)
-    d = Ld @ u2                           # dominance effect  ~ N(0, s2d K_d)
-    gxg = Lgxg @ u3                       # epistasis effect  ~ N(0, s2gxg W)
-    e = np.sqrt(s2e) * u4                 # residual noise
+    # CENTERED draws.  Centering a draw from W is, in distribution, a draw from
+    # P_c W P_c, so the Cholesky factors are unchanged and only the projection
+    # is new.  The estimator works in the same contrast space.
+    a = _center_cols(La @ u1)             # additive effect   ~ N(0, s2a K_a)
+    d = _center_cols(Ld @ u2)             # dominance effect  ~ N(0, s2d K_d)
+    gxg = _center_cols(Lgxg @ u3)         # epistasis  ~ N(0, s2gxg P_c W P_c)
+    e = _center_cols(np.sqrt(s2e) * u4)   # residual noise
 
     if force_realized:
         # ddof=0, matching how the realized columns report it.  See the
@@ -602,12 +630,15 @@ def _v_matvec(Z, Zd, Z_list, F_list, P, c, s2a, s2d, s2gxg, s2e, B):
 
     B is (n,) or (n, k) and the result matches.  No n-by-n GRM exists: K_a and
     K_d are a gemm pair each, the epistasis term is rebuilt from the cached
-    low-rank factors.  THE UNIT OF WORK: CG sees V and nothing else.
+    low-rank factors and wrapped in P_c on both sides (K_a and K_d need no
+    wrapping -- K 1 = 0 already).  THE UNIT OF WORK: CG sees V and nothing else;
+    a centered right-hand side stays centered, since every term preserves it.
     """
     _count_apply('V', 1 if np.ndim(B) == 1 else np.shape(B)[1])
     return (s2a * compute_KU(Z, B)
             + s2d * compute_KU(Zd, B)
-            + s2gxg * compute_WU_pooled(Z_list, F_list, P, c, B)
+            + s2gxg * _center_cols(
+                compute_WU_pooled(Z_list, F_list, P, c, _center_cols(B)))
             + s2e * B)
 
 
@@ -703,6 +734,11 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     """Monte-Carlo AI-REML for  V = s2a K_a + s2d K_d + s2gxg W + s2e I, with
     W = W_raw/c applied by its rank-r truncation.
 
+    The fit runs in the CONTRAST SPACE: y and the probes are centered and the
+    W apply is wrapped in P_c, so the epistasis kernel is P_c W P_c.  That makes
+    this proper REML with an intercept and keeps lam_max(W) off the all-ones
+    direction, where most of it otherwise sits.
+
     Z is the standardized genotype (K_a, and split into G genes for the
     epistasis setup); Zd is the dominance design (K_d only).  Both are n-by-m
     and are the only large arrays held.  Because the kernel carries 1/c-hat,
@@ -766,6 +802,7 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     """
     reset_op_counts()                  # counts describe THIS replicate alone
     y = np.asarray(y, dtype=float).flatten()
+    y = y - y.mean()                   # work in the contrast space throughout
     Z = np.asarray(Z, dtype=float)
     Zd = np.asarray(Zd, dtype=float)
     n = y.shape[0]
@@ -776,7 +813,8 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     F_list, P, c = setup_pooled(genes, r=r)      # c: the normalization divisor
     Kaapply = lambda B: compute_KU(Z, B)
     Kdapply = lambda B: compute_KU(Zd, B)
-    Wapply = lambda B: compute_WU_pooled(genes, F_list, P, c, B)
+    Wapply = lambda B: _center_cols(
+        compute_WU_pooled(genes, F_list, P, c, _center_cols(B)))
 
     # Spectral ranges for the feasibility bound, genotype-only, computed ONCE.
     # K_a and K_d are Gram matrices, so their lower end is written as 0 rather
@@ -841,7 +879,9 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     rng = np.random.default_rng(seed)
     # Drawn ONCE at FULL width; the coarse phase reads U[:, :Nmc_coarse].  See
     # the docstring for why this is not a redraw at the switch.
-    U = rng.choice([-1.0, 1.0], size=(n, Nmc))      # Rademacher probes in {+-1}
+    # CENTERED Rademacher probes: E[uu'] = P_c, so Hutchinson estimates
+    # tr(P_c V^-1 K_i) -- the RESTRICTED trace REML wants with an intercept.
+    U = _center_cols(rng.choice([-1.0, 1.0], size=(n, Nmc)))
     if Nmc_coarse is None or Nmc_coarse >= Nmc:
         n_probe, coarse = Nmc, False                # single-phase fit
     else:
