@@ -1,0 +1,11 @@
+﻿__pycache__/
+*.pyc
+.claude/
+.ipynb_checkpoints/
+**/Cholesky/
+**/Phenotype/
+**/result/*/
+**/time/rep_times/
+**/time/op_counts/
+**/error/
+*.npy

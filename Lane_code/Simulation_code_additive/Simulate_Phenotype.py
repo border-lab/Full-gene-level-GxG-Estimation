@@ -42,3 +42,13 @@ output_dir = f"/home/ziyanzha/MOM_within_gene/Whole_model/Phenotype/y_{mode}_n{n
 os.makedirs(output_dir, exist_ok=True)
 y_path = f"{output_dir}/rep{rep}.csv"
 pd.DataFrame(y).to_csv(y_path, index=False, header=False)
+
+
+
+# Save Z only once (Z is deterministic for a given genotype matrix)
+z_dir = "/home/ziyanzha/MOM_within_gene/stored_genotype"
+z_path = f"{z_dir}/Z_{mode}_n{n}_m{m}.csv"
+if not os.path.exists(z_path):
+    os.makedirs(z_dir, exist_ok=True)
+    pd.DataFrame(Z).to_csv(z_path, index=False, header=False)
+    print(f"Z saved to: {z_path}")

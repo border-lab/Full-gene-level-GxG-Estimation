@@ -1,0 +1,4 @@
+c_hat_hwe 1.5639347090
+c_exact 1.5622188441
+expected_realized_variance_hwe 0.3127869418
+expected_realized_variance_exact 0.3124437688

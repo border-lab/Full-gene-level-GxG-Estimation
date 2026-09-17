@@ -1,0 +1,49 @@
+from Function_MCREML import *
+import argparse
+import os
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--m', type=int, required=True)
+parser.add_argument('--n', type=int, required=True)
+parser.add_argument('--s2a', type=float, required=True)
+parser.add_argument('--s2e', type=float, required=True)
+parser.add_argument('--rep', type=int, required=True)
+parser.add_argument('--mode', type=str, required=True)
+
+
+args = parser.parse_args()
+
+m = args.m
+n = args.n
+s2a = args.s2a
+s2e = args.s2e
+mode = args.mode
+rep = args.rep
+
+
+# Read genotype
+SNP = pd.read_csv(f"/home/ziyanzha/MOM_within_gene/stored_genotype/{mode}_n{n}_m{m}.csv", header=None)
+SNP = SNP.to_numpy()
+
+# Load the precomputed additive Cholesky factor (La La' = s2a K).
+save_dir_La = "/home/ziyanzha/MOM_within_gene/MCREML_additive/Cholesky_La"
+save_path_La = f"{save_dir_La}/La_{mode}_n{n}_m{m}_s2a{s2a}_s2e{s2e}.npy"
+La = np.load(save_path_La)
+
+# Additive-only phenotype: y = g_a + e with g_a ~ N(0, s2a K).
+Z, y = simulate_remove_sampling_err(SNP, La, s2a=s2a, s2e=s2e)
+
+output_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_additive/Phenotype/y_{mode}_n{n}_m{m}_s2a{s2a}_s2e{s2e}"
+
+os.makedirs(output_dir, exist_ok=True)
+y_path = f"{output_dir}/rep{rep}.csv"
+pd.DataFrame(y).to_csv(y_path, index=False, header=False)
+
+
+# Save Z only once (Z is deterministic for a given genotype matrix).
+z_dir = "/home/ziyanzha/MOM_within_gene/stored_genotype"
+z_path = f"{z_dir}/Z_{mode}_n{n}_m{m}.csv"
+if not os.path.exists(z_path):
+    os.makedirs(z_dir, exist_ok=True)
+    pd.DataFrame(Z).to_csv(z_path, index=False, header=False)
+    print(f"Z saved to: {z_path}")

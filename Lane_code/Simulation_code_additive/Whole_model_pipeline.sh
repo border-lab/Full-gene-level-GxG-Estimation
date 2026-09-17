@@ -1,80 +1,62 @@
 #!/bin/bash
-# Whole model simulation pipeline
+#SBATCH --job-name=grm_filter
+#SBATCH -p mzhang
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=120G
+#SBATCH --time=12:00:00
+#SBATCH --output=grm_filter_%j.log
+#SBATCH --error=grm_filter_%j.err
 
-N=2000
-M=1000
-S2A=0.2
-S2GXG=0.7
-S2E=0.1
-MODE=Random
-MEM=3G
-ARRAY=20
+# ============================================================
+# GRM relatedness filtering on HPC (mzhang partition)
+# GRM already generated as: chr1_4000snp_grm
+# Filters relatedness > 0.05, extracts unrelated genotype.
+# ============================================================
 
-DIR=/home/ziyanzha/MOM_within_gene/Whole_model
-FILENAME=${MODE}_n${N}m${M}_s2a${S2A}_s2gxg${S2GXG}_s2e${S2E}
-LGXG_FILE=$DIR/Cholesky_Lgxg/Lgxg_${MODE}_n${N}_m${M}_s2a${S2A}_s2gxg${S2GXG}_s2e${S2E}.npy
-LA_FILE=$DIR/Cholesky_La/La_${MODE}_n${N}_m${M}_s2a${S2A}_s2gxg${S2GXG}_s2e${S2E}.npy
-PHENO_DIR=$DIR/Phenotype/y_${MODE}_n${N}_m${M}_s2a${S2A}_s2gxg${S2GXG}_s2e${S2E}
+set -e
 
-# Step 1: Cholesky (single job)
-JOB1=$(sbatch --parsable \
-    --job-name=cholesky \
-    -p mzhang \
-    --error=$DIR/error/cholesky_%j.err \
-    --output=/dev/null \
-    --nodes=1 \
-    --mem=$MEM \
-    --ntasks=1 \
-    --cpus-per-task=16 \
-    --time=48:00:00 \
-    $DIR/Cholesky.sh $N $M $S2A $S2GXG $S2E $MODE)
-echo "Cholesky job: $JOB1"
+# ---- CONFIG (edit if needed) ----
+WORKDIR=/home/ziyanzha/MOM_within_gene/genotype_matrix_plink
+DATA=chr1_4000snp
+GRM=${DATA}_grm
+CUTOFF=0.05
+# ---------------------------------
 
-# Step 2: Phenotype (array job, waits for Step 1)
-JOB2=$(sbatch --parsable \
-    --dependency=afterok:$JOB1 \
-    --job-name=phenotype \
-    -p mzhang \
-    --error=$DIR/error/phenotype_%A.err \
-    --open-mode=append \
-    --output=/dev/null \
-    --nodes=1 \
-    --mem=$MEM \
-    --ntasks=1 \
-    --cpus-per-task=4 \
-    --array=1-300%$ARRAY \
-    --time=12:00:00 \
-    $DIR/Phenotype.sh $N $M $S2A $S2GXG $S2E $MODE)
-echo "Phenotype job: $JOB2"
+cd $WORKDIR
+echo "=== Job started: $(date) ==="
+echo "GRM: $GRM, cutoff: $CUTOFF"
 
-# Step 3: MoM (array job, waits for Step 2)
-JOB3=$(sbatch --parsable \
-    --dependency=afterok:$JOB2 \
-    --job-name=mom \
-    -p mzhang \
-    --error=$DIR/error/mom_%A.err \
-    --open-mode=append \
-    --output=/dev/null \
-    --nodes=1 \
-    --mem=$MEM \
-    --ntasks=1 \
-    --cpus-per-task=4 \
-    --array=1-300%$ARRAY \
-    --time=12:00:00 \
-    $DIR/MoM.sh $N $M $S2A $S2GXG $S2E $MODE)
-echo "MoM job: $JOB3"
+# Check GRM files
+ls -lh ${GRM}.grm.id ${GRM}.grm.bin ${GRM}.grm.N.bin
+N_TOTAL=$(wc -l < ${GRM}.grm.id)
+echo "Total individuals: $N_TOTAL"
+echo ""
 
-# Step 4: Combine results and clean up (waits for Step 3)
-JOB4=$(sbatch --parsable \
-    --dependency=afterok:$JOB3 \
-    --job-name=combine \
-    -p mzhang \
-    --error=$DIR/error/combine_%j.err \
-    --output=/dev/null \
-    --nodes=1 \
-    --mem=$MEM \
-    --ntasks=1 \
-    --cpus-per-task=1 \
-    --time=00:30:00 \
-    --wrap="bash $DIR/combine_code.sh $FILENAME && rm -rf $DIR/result/$FILENAME && rm -f $LGXG_FILE && rm -f $LA_FILE && rm -rf $PHENO_DIR")
-echo "Combine job: $JOB4"
+# Step 1: GCTA grm-cutoff (greedy independent set)
+echo "=== Step 1: GCTA grm-cutoff filtering ==="
+gcta64 --grm $GRM --grm-cutoff $CUTOFF --make-grm --out ${DATA}_unrelated --thread-num 16
+
+N_KEEP=$(wc -l < ${DATA}_unrelated.grm.id)
+echo "Remaining after filtering: $N_KEEP / $N_TOTAL"
+echo ""
+
+# Step 2: extract unrelated genotype
+echo "=== Step 2: extract unrelated genotype ==="
+plink --bfile $DATA \
+      --keep ${DATA}_unrelated.grm.id \
+      --make-bed \
+      --allow-no-sex \
+      --out ${DATA}_unrelated_geno
+echo "Final: $(wc -l < ${DATA}_unrelated_geno.fam) individuals, $(wc -l < ${DATA}_unrelated_geno.bim) SNPs"
+echo ""
+
+# Step 3: convert to CSV for MoM pipeline
+echo "=== Step 3: convert to CSV ==="
+plink --bfile ${DATA}_unrelated_geno --recode A --allow-no-sex --out tmp_unrel
+tail -n +2 tmp_unrel.raw | cut -d' ' -f7- | tr ' ' ',' > ${DATA}_unrelated_geno.csv
+rm -f tmp_unrel.raw tmp_unrel.log tmp_unrel.nosex
+echo "CSV: $(wc -l < ${DATA}_unrelated_geno.csv) individuals"
+
+echo "=== Job finished: $(date) ==="
