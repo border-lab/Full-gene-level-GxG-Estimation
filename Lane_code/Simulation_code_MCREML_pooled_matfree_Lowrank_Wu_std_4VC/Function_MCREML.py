@@ -19,9 +19,9 @@ import time
 # Dividing W by c-hat is what separates this pipeline from _unstd_4VC, which
 # corrects after the fit instead.  It puts s2gxg on the REALIZED-variance
 # scale, so all four estimates compare directly with their targets and NO
-# post-fit correction is applied anywhere.  c-hat comes from pooled_c()
-# (C_METHOD) and both simulation and estimator call it on the same genotype,
-# so the two sides differ by the rank-r truncation alone.
+# post-fit correction is applied anywhere.  c-hat comes from pooled_c() (the
+# third-moment plug-in) and both simulation and estimator call it on the same
+# genotype, so the two sides differ by the rank-r truncation alone.
 #
 # EVERYTHING RUNS IN THE CONTRAST SPACE  P_c = I - 11'/n.  The phenotype, the
 # component draws and the Hutchinson probes are centered, and the W apply is
@@ -44,20 +44,42 @@ import time
 # vectors, almost all inside CG.  Unlike wall-clock, these counts are
 # machine-independent.  Per operator: <op>_applies (calls) and <op>_columns
 # (total n-vectors, the cost-bearing number).  V is the composite, K is
-# compute_KU serving both designs, W is compute_WU_pooled.  Also cg_solves,
+# compute_KU serving both designs, W is compute_WU_storedA.  Also cg_solves,
 # cg_iters, reml_iters and lam_min_exact (0 on a clean replicate).  GLOBAL and
 # CUMULATIVE; mc_reml zeroes them, so one MC_REML call = one replicate.
+#
+# WALL-CLOCK TWINS.  _OP_TIMES holds seconds, keyed "<what>_sec", accumulated
+# by ONE perf_counter pair per call at the same sites (V, K, W applies), plus
+# the solve groups and setup pieces inside mc_reml and the two gemm pairs of
+# the W apply (W_gemm_A, W_gemm_D).  These ARE machine-dependent: counts
+# say how much work was asked for, these say how fast each kind of work ran.
+# Nesting: V_sec CONTAINS the K_sec and W_sec spent inside V applies; W_sec
+# contains the W_* pieces; every solve_*_sec contains its V applies.  So the
+# pieces are quoted per column (driver), not summed.
 _OP_COUNTS = {}
+_OP_TIMES = {}
 
 
 def reset_op_counts():
-    """Zero every operator-apply counter.  mc_reml calls this on entry."""
+    """Zero every operator-apply counter AND timer.  mc_reml calls this on entry."""
     _OP_COUNTS.clear()
+    _OP_TIMES.clear()
 
 
 def get_op_counts():
-    """Snapshot of the counters as a plain dict.  Absent keys mean zero."""
-    return dict(_OP_COUNTS)
+    """Snapshot of counters and timers as ONE plain dict.  Absent keys mean zero.
+
+    Timer keys end in "_sec"; everything else is a count.
+    """
+    out = dict(_OP_COUNTS)
+    out.update(_OP_TIMES)
+    return out
+
+
+def _add_time(name, dt):
+    """Accumulate dt seconds under timer `name` (the "_sec" suffix is added)."""
+    key = name + '_sec'
+    _OP_TIMES[key] = _OP_TIMES.get(key, 0.0) + dt
 
 
 def _count_apply(name, ncols):
@@ -146,7 +168,9 @@ def compute_KU(Zi, U):
     if single:
         U = U.reshape(-1, 1)
     _count_apply('K', U.shape[1])            # K_a and K_d share this routine
+    t0 = time.perf_counter()
     out = (Zi @ (Zi.T @ U)) / m
+    _add_time('K', time.perf_counter() - t0)
     return out[:, 0] if single else out
 
 
@@ -176,120 +200,43 @@ def _within_gene_sum(Zg):
     return S, pg
 
 
-def pooled_c_exact(Z_list):
-    """EXACT realized-variance factor c -- the yardstick for the O(nm) plug-ins.
-
-        c = (1/P) sum_g sum_{a<b in g} Var-hat(Z_a .* Z_b) ,  P = sum_g C(m_g, 2)
-
-    at ddof=0, so E[Var-hat(H gamma)] = c * s2gxg.  NOT the divisor: the kernels
-    use pooled_c() (C_METHOD), and c_exact/c-hat is a run's residual scale error.
-
-    Takes the COLUMN-STANDARDIZED gene blocks.  Formed without the n-by-P design
-    H, one gemm per gene: O(n sum_g m_g^2) time, O(max_g m_g^2) storage --
-    QUADRATIC in gene size, hence a diagnostic only.  1-SNP genes are skipped.
-    """
-    total = 0.0
-    P = 0
-    for Zg in Z_list:
-        mg = Zg.shape[1]
-        if mg < 2:                               # no within-gene pair
-            continue
-        n = Zg.shape[0]
-        P += mg * (mg - 1) // 2
-        Dg = Zg * Zg
-        second = 0.5 * (np.sum(Dg.sum(axis=1) ** 2) - np.sum(Dg * Dg)) / n
-        Gm = Zg.T @ Zg
-        mean_sq = 0.5 * (np.sum(Gm * Gm) - np.sum(np.diag(Gm) ** 2)) / n ** 2
-        total += second - mean_sq                # sum_{a<b} Var-hat(Z_a Z_b)
-    if P == 0:
-        raise ValueError("No gene block has >= 2 SNPs; increase m/G.")
-    c = total / P
-    if not (c > 0.0):
-        # Only reachable if every interaction column is constant; dividing by it
-        # would produce inf or a sign flip.
-        raise ValueError(f"Pooled realized-variance factor c = {c!r} is not "
-                         f"positive; the genotype has no varying interaction "
-                         f"column. Check the MAF filter.")
-    return c
-
-
-# ---------------------------------------- c: the O(nm) plug-in estimators
-# Both plug-ins are one closed form fed a different per-SNP skewness s.  From
+# ---------------------------------------- c-hat: the third-moment plug-in
+# c-hat puts s2gxg on the realized-variance scale.  From
 # Var(Z_a Z_b) = 1 + r_ab s_a s_b, with R_g = Z_g'Z_g/n having unit diagonal,
 #
 #     c-hat = 1 + (1 / 2P) sum_g ( ||Z_g s_g||^2 / n - ||s_g||^2 ) ,
 #
-# i.e. ONE mat-vec per gene, O(n m_g) time, nothing m-by-m or n-by-P.  The
-# routes differ only in s: third_moment_skewness reads it off the genotype,
-# hwe_skewness predicts it from the allele frequency.
-C_METHOD = 'moment'     # what pooled_c(), hence every kernel, uses.
-                        # 'moment' | 'hwe' | 'exact'
+# i.e. ONE mat-vec per gene, O(n m_g) time, nothing m-by-m or n-by-P, with the
+# skewness s_g read off the genotype by third_moment_skewness.
 
 def third_moment_skewness(Z):
     """Per-SNP skewness  s-hat_i = (1/n) sum_t Z_ti^3, with NO HWE assumption.
 
     On a column-standardized design the raw third moment IS the skewness.
-    O(nm) time, O(m) storage.  THE PIPELINE'S ROUTE (C_METHOD): s is estimated
-    from the genotype rather than predicted from its allele frequency, at the
-    price of O(1/sqrt n) sampling error.  A monomorphic column gets 0 and then
-    biases c-hat, so use MAF-filtered genotypes.
+    O(nm) time, O(m) storage.  A monomorphic column gets 0 and then biases
+    c-hat, so use MAF-filtered genotypes.
     """
     Z = np.asarray(Z, dtype=float)
     return np.einsum('ij,ij,ij->j', Z, Z, Z) / Z.shape[0]
 
 
-def hwe_skewness(real_data):
-    """Skewness under HWE, from the allele frequency alone:
+def pooled_c(Z_list):
+    """THE DIVISOR c-hat, by the third-moment plug-in.  Every kernel gets it here.
 
-        s_i = (1 - 2 p_i) / sqrt(2 p_i (1 - p_i)) ,   p_i = mean(X_i) / 2 .
-
-    Takes the RAW dosages.  O(nm).  DIAGNOSTIC here: its gap against
-    third_moment_skewness is the HWE departure, which is why 'moment' is
-    C_METHOD.  A monomorphic SNP gets 0; use MAF-filtered genotypes.
-    """
-    X = np.asarray(real_data, dtype=float)
-    p = X.mean(axis=0) / 2.0
-    denom = 2.0 * p * (1.0 - p)
-    ok = denom > 0.0
-    s = np.zeros(p.shape[0])
-    s[ok] = (1.0 - 2.0 * p[ok]) / np.sqrt(denom[ok])
-    return s
-
-
-def _split_like_genes(v, Z_list):
-    """Cut a length-m per-SNP vector into the gene blocks of Z_list.
-
-    The blocks are contiguous and in column order; the total is guarded so a
-    mismatched G cannot misalign the skewness against the genotype.
-    """
-    v = np.asarray(v, dtype=float)
-    total = sum(Zg.shape[1] for Zg in Z_list)
-    if v.shape[0] != total:
-        raise ValueError(f"per-SNP vector has {v.shape[0]} entries but the "
-                         f"gene blocks hold {total} columns.")
-    out, k = [], 0
-    for Zg in Z_list:
-        mg = Zg.shape[1]
-        out.append(v[k:k + mg])
-        k += mg
-    return out
-
-
-def _pooled_c_plugin(Z_list, s_list, method):
-    """The O(nm) closed form above, given a per-SNP skewness for each gene.
-
-        c-hat = 1 + (1 / 2P) sum_g ( ||Z_g s_g||^2 / n - ||s_g||^2 ) .
-
-    1-SNP genes are skipped, as everywhere else.
+    Takes the COLUMN-STANDARDIZED gene blocks, so the divisor is a deterministic
+    function of exactly what is being normalized.  build_W_pooled and
+    setup_pooled both call this on blocks from the same genotype, so the two
+    sides cannot disagree.  1-SNP genes are skipped, as everywhere else.
     """
     P = 0
     cross = 0.0
-    for Zg, sg in zip(Z_list, s_list):
+    for Zg in Z_list:
         mg = Zg.shape[1]
         if mg < 2:                               # no within-gene pair
             continue
         n = Zg.shape[0]
         P += mg * (mg - 1) // 2
+        sg = third_moment_skewness(Zg)
         Zs = Zg @ sg                             # the ONE mat-vec per gene
         cross += (Zs @ Zs) / n - sg @ sg         # s' R_g s - ||s||^2
     if P == 0:
@@ -298,58 +245,10 @@ def _pooled_c_plugin(Z_list, s_list, method):
     if not (c > 0.0):
         # c-hat is an estimate, not an average of variances, so it CAN go
         # non-positive; dividing by it would flip the epistasis component's sign.
-        raise ValueError(f"Plug-in realized-variance factor c-hat = {c!r} "
-                         f"(method={method!r}) is not positive; the skewness "
-                         f"term overwhelms the leading 1.  Check the MAF "
-                         f"filter, or fall back to method='exact'.")
+        raise ValueError(f"Plug-in realized-variance factor c-hat = {c!r} is "
+                         f"not positive; the skewness term overwhelms the "
+                         f"leading 1.  Check the MAF filter.")
     return c
-
-
-def pooled_c_moment(Z_list):
-    """c-hat by the THIRD-MOMENT plug-in -- the divisor this pipeline uses.
-
-    Takes the COLUMN-STANDARDIZED gene blocks, so the divisor is a deterministic
-    function of exactly what is being normalized.
-    """
-    return _pooled_c_plugin(Z_list,
-                            [third_moment_skewness(Zg) for Zg in Z_list],
-                            'moment')
-
-
-def pooled_c_hwe(Z_list, real_data):
-    """c-hat by the HWE closed form -- DIAGNOSTIC here.
-
-    Needs the RAW dosages alongside the standardized blocks.
-    """
-    s = hwe_skewness(real_data)
-    return _pooled_c_plugin(Z_list, _split_like_genes(s, Z_list), 'hwe')
-
-
-def pooled_c(Z_list, method=C_METHOD, real_data=None):
-    """THE DIVISOR.  Every kernel in this pipeline gets its c from here.
-
-    Z_list is the COLUMN-STANDARDIZED gene blocks; method is
-
-        'moment'  third-moment plug-in, O(nm)     -- the default (C_METHOD)
-        'hwe'     HWE closed form,      O(nm)     -- needs real_data
-        'exact'   mean per-pair sample variance, O(n sum_g m_g^2)
-
-    build_W_pooled and setup_pooled both call this with the default on blocks
-    from the same genotype, so the two sides cannot disagree.  There is no CLI
-    switch for method on purpose: editing C_METHOD changes both, or neither.
-    """
-    if method == 'moment':
-        return pooled_c_moment(Z_list)
-    if method == 'exact':
-        return pooled_c_exact(Z_list)
-    if method == 'hwe':
-        if real_data is None:
-            raise ValueError("method='hwe' needs the RAW 0/1/2 dosages "
-                             "(real_data=...) for the allele frequencies; the "
-                             "standardized blocks no longer carry them.")
-        return pooled_c_hwe(Z_list, real_data)
-    raise ValueError(f"method must be 'moment', 'hwe' or 'exact'; "
-                     f"got {method!r}.")
 
 
 def build_W_pooled(Z_list, return_c=False):
@@ -360,7 +259,7 @@ def build_W_pooled(Z_list, return_c=False):
         W     = W_raw / c-hat ,   c-hat = pooled_c(Z_list) .
 
     SIMULATION ONLY (n-by-n, O(n^2 m)); the estimator applies a rank-r
-    truncation of the same W via compute_WU_pooled, dividing by the same c-hat.
+    truncation of the same W via compute_WU_storedA, dividing by the same c-hat.
     c-hat is a positive scalar, so W stays symmetric PSD.  return_c=True returns
     (W, c).  1-SNP genes are skipped.  tr(W) != n and W 1 != 0.
     """
@@ -375,7 +274,7 @@ def build_W_pooled(Z_list, return_c=False):
         P += pg
     if P == 0:
         raise ValueError("No gene block has >= 2 SNPs; increase m/G.")
-    c = pooled_c(Z_list)                     # C_METHOD: the third-moment c-hat
+    c = pooled_c(Z_list)                     # the third-moment c-hat
     W /= (P * c)                             # the c-normalization
     return (W, c) if return_c else W
 
@@ -421,60 +320,97 @@ def setup_pooled(Z_list, r=R_DEFAULT):
 
     if P == 0:
         raise ValueError("No gene block has >= 2 SNPs; increase m/G.")
-    return F_list, P, pooled_c(Z_list)       # C_METHOD, the same c-hat the
+    return F_list, P, pooled_c(Z_list)       # the same c-hat the
                                              # simulation divided W by
 
 
-def _gene_WU(gene, U, buf_elems):
-    """ONE gene's un-normalized contribution  2 S_g U, by the rank-r truncation.
+# --- THE W-HAT APPLY: STORED A -----------------------------------------------
+# Per gene, the rank-r truncation is
+#
+#     2 S-hat_g U = sum_s lam_s A_s (A_s' U) - D_g (D_g' U) ,   A_s = q_s .* Z_g .
+#
+# Built ONCE with sqrt(lam) folded in (lam_s = s_s^2 >= 0),
+#
+#     At_g = [A_1 | ... | A_r] Lam_g^{1/2} ,   Lam_g = blockdiag(lam_s I_{m_g}) ,
+#
+# gives 2 S-hat_g U = At_g (At_g' U) - D_g (D_g' U), and stacking every gene
+# horizontally, At = [At_1 | ... | At_G], D = [D_1 | ... | D_G], turns the sum
+# over genes into the gemm's own inner sum:
+#
+#     W-hat U = ( At (At' U) - D (D' U) ) / (2 P c) .
+#
+# Two gemm pairs, no per-gene loop, no per-apply build -- paid for in memory:
+# At is (n, sum_g r_g m_g), i.e. r times Z when every SNP is in a gene.
+def setup_storedA(F_list, dtype=np.float64, max_gb=16.0):
+    """Build (At, D) for compute_WU_storedA from one setup_pooled's F_list.
 
-        (K .* K) u ~ sum_{s=1}^r lam_s q_s .* (Z(Z'(q_s .* u))) .
+    At : (n, sum_g r_g m_g), gene g's block ordered s-major, sqrt(lam_s) q_s .* Z_g
+    D  : (n, sum_g m_g), the D_g = Z_g .* Z_g side by side
+    Written block by block into preallocated arrays (no stacking copies).  1-SNP
+    genes (None) carry no pair and are skipped.  The
+    size of At + D is printed and checked against max_gb BEFORE allocating.
     """
-    Zg, Dg, Q, lam = gene['Z'], gene['D'], gene['Q'], gene['lam']
-    n, c = U.shape
-    r = Q.shape[1]
-    out = np.empty((n, c))
-    Ql = Q * lam                                 # fold lam into the left factor
+    t0 = time.perf_counter()
+    dtype = np.dtype(dtype)
+    genes = [g for g in F_list if g is not None]
+    n = genes[0]['Z'].shape[0]
+    ncol_A = sum(g['Q'].shape[1] * g['Z'].shape[1] for g in genes)
+    ncol_D = sum(g['Z'].shape[1] for g in genes)
+    gb = n * (ncol_A + ncol_D) * dtype.itemsize / 1e9
+    print(f"stored-A: At ({n} x {ncol_A}) + D ({n} x {ncol_D}) in {dtype.name} "
+          f"= {gb:.3f} GB (limit {max_gb:g} GB)", flush=True)
+    if gb > max_gb:
+        raise MemoryError(
+            f"the stored-A W apply needs {gb:.3f} GB for At + D, over the limit of "
+            f"{max_gb:g} GB (--max_A_gb).  Use --A_dtype float32, a "
+            f"smaller r, or raise --max_A_gb.")
 
-    cb = max(1, min(c, buf_elems // max(1, n * r)))
-    for s in range(0, c, cb):
-        e = min(s + cb, c)
-        w = e - s
-        Ub = U[:, s:e]
+    At = np.empty((n, ncol_A), dtype=dtype)
+    D = np.empty((n, ncol_D), dtype=dtype)
+    ja = jd = 0
+    for g in genes:
+        Zg, Q, lam = g['Z'], g['Q'], g['lam']
+        mg = Zg.shape[1]
+        sq = np.sqrt(lam)
+        for s in range(Q.shape[1]):              # one (n, m_g) block per s,
+            np.multiply((sq[s] * Q[:, s])[:, None], Zg,   # straight into At
+                        out=At[:, ja:ja + mg])
+            ja += mg
+        D[:, jd:jd + mg] = g['D']
+        jd += mg
+    _add_time('setup_A', time.perf_counter() - t0)
+    return At, D
 
-        Tb = (Q[:, :, None] * Ub[:, None, :]).reshape(n, r * w)   # q_s .* u
-        Ob = (Zg @ (Zg.T @ Tb)).reshape(n, r, w)                  # K(q_s .* u)
-        out[:, s:e] = np.einsum('ns,nsw->nw', Ql, Ob)             # lam q_s .* (.)
 
-    out -= Dg @ (Dg.T @ U)                   # the a = b terms the pair sum drops
-    return out
+def compute_WU_storedA(At, D, P, c, U):
+    """Matrix-free  W-hat @ U  from the stored (At, D) of setup_storedA.
 
+        W-hat U = ( At (At' U) - D (D' U) ) / (2 P c) .
 
-def compute_WU_pooled(Z_list, F_list, P, c, U, buf_elems=8_000_000):
-    """Matrix-free  W-hat @ U, W-hat the rank-r truncation of the C-NORMALIZED
-    pooled epistasis GRM.
-
-        W-hat U = 1/(2 P c) sum_g 2 S-hat_g U .
-
-    U is (n,) or (n, k) and the result matches.  Forms nothing n-by-n, n-by-p_g
-    or m-by-m.  c is the same divisor the simulation used, so the two sides
-    differ by the truncation alone.  Pass (F_list, P, c) from one setup_pooled.
+    U is (n,) or (n, k) and the result
+    matches, always float64.  With float32 At / D, U is cast to float32 for the
+    two gemm pairs (else numpy would upcast At on every apply) and the result
+    cast back.
     """
-    n = Z_list[0].shape[0]
+    n = At.shape[0]
     U = np.asarray(U, dtype=float)
     single = (U.ndim == 1)
     if single:
         U = U.reshape(n, 1)
     _count_apply('W', U.shape[1])
-
-    T1 = np.zeros_like(U)
-    for gene in F_list:
-        if gene is None:                     # 1-SNP gene: no pair, no work
-            continue
-        T1 += _gene_WU(gene, U, buf_elems)
-
-    out = T1 / (2.0 * P * c)
+    t0 = time.perf_counter()
+    Uc = U.astype(At.dtype, copy=False)
+    t1 = time.perf_counter()
+    out = At @ (At.T @ Uc)                       # sum_g 2 x pair part
+    t2 = time.perf_counter()
+    out -= D @ (D.T @ Uc)                        # the a = b terms
+    t3 = time.perf_counter()
+    out = out.astype(np.float64, copy=False) / (2.0 * P * c)
+    _add_time('W_gemm_A', t2 - t1)
+    _add_time('W_gemm_D', t3 - t2)
+    _add_time('W', time.perf_counter() - t0)
     return out[:, 0] if single else out
+
 
 
 # ------------------------------------------------------------- simulation
@@ -605,41 +541,40 @@ def simulate_phenotype(La, Ld, Lgxg, n, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
 
 
 # ------------------------------------ realized-variance scale factor  c
-def compute_c_pooled(real_data, G, method=C_METHOD):
-    """Realized-variance factor c of the RAW pooled kernel, from raw dosages.
-
-    pooled_c() with the standardize-and-split done for you: builds Z_a, cuts it
-    into the same G genes, and dispatches on method ('moment' the default,
-    'hwe', 'exact').  Takes RAW dosages because the HWE route needs the allele
-    frequencies.  The Cholesky job calls all three and writes them to
-    result/c_<FILENAME>.txt.
+def compute_c_pooled(real_data, G):
+    """c-hat from raw dosages: builds Z_a, cuts it into G genes, returns pooled_c.
 
     NOT where the kernels get their divisor -- they call pooled_c directly.
-    _unstd_4VC uses this AFTER the fit; here the kernel already carries 1/c-hat,
-    so no post-fit correction is applied.  K_a and K_d need no analogue:
-    c_a = c_d = 1 exactly, their columns being standardized.
+    Here the kernel already carries 1/c-hat, so no post-fit correction is
+    applied.  K_a and K_d need no analogue: c_a = c_d = 1 exactly, their
+    columns being standardized.
     """
     Z = additive_design(real_data)
     genes = split_into_genes(Z, G)
-    return pooled_c(genes, method=method, real_data=real_data)
+    return pooled_c(genes)
 
 
-# ------------------------------------------------ matrix-free linear algebra
-def _v_matvec(Z, Zd, Z_list, F_list, P, c, s2a, s2d, s2gxg, s2e, B):
+# ------------------------------------------------ Linear operator for the 4-VC system
+def _v_matvec(Z, Zd, wu, s2a, s2d, s2gxg, s2e, B):
     """Apply  V = s2a K_a + s2d K_d + s2gxg W-hat + s2e I  to B, matrix-free.
 
     B is (n,) or (n, k) and the result matches.  No n-by-n GRM exists: K_a and
-    K_d are a gemm pair each, the epistasis term is rebuilt from the cached
-    low-rank factors and wrapped in P_c on both sides (K_a and K_d need no
+    K_d are a gemm pair each, the epistasis term is wu (the un-wrapped W-hat
+    apply B -> W-hat B, compute_WU_storedA) wrapped in P_c on both sides (K_a and K_d need no
     wrapping -- K 1 = 0 already).  THE UNIT OF WORK: CG sees V and nothing else;
     a centered right-hand side stays centered, since every term preserves it.
+
     """
     _count_apply('V', 1 if np.ndim(B) == 1 else np.shape(B)[1])
-    return (s2a * compute_KU(Z, B)
-            + s2d * compute_KU(Zd, B)
-            + s2gxg * _center_cols(
-                compute_WU_pooled(Z_list, F_list, P, c, _center_cols(B)))
-            + s2e * B)
+    t0 = time.perf_counter()
+    Bc = _center_cols(B)
+    WB = wu(Bc)
+    out = (s2a * compute_KU(Z, B)
+           + s2d * compute_KU(Zd, B)
+           + s2gxg * _center_cols(WB)
+           + s2e * B)
+    _add_time('V', time.perf_counter() - t0)    # includes its K and W applies
+    return out
 
 
 def _cg_batched(matvec, Bmat, x0=None, tol=1e-6, maxiter=1000):
@@ -676,7 +611,7 @@ def _cg_batched(matvec, Bmat, x0=None, tol=1e-6, maxiter=1000):
     return X
 
 
-def _spectral_range(apply, n, iters=80, tol=1e-7, seed=0): ### use to diagnose
+def _spectral_range(apply, n, iters=80, tol=1e-7, seed=0):
     """(lam_min, lam_max) of a SYMMETRIC operator given only its apply.
 
     NOT a PSD routine, deliberately: the rank-r W-hat is symmetric but can be
@@ -710,7 +645,7 @@ def _spectral_range(apply, n, iters=80, tol=1e-7, seed=0): ### use to diagnose
     return (min(mu1, mu2), max(mu1, mu2))
 
 
-def reml_se(AI, Nmc):  ##not used currently
+def reml_se(AI, Nmc):
     """SEs of the AI-REML estimate, with the Monte-Carlo inflation.
 
         SE_p = sqrt( [AI^{-1}]_pp ) * sqrt(1 + 1/Nmc)
@@ -730,7 +665,8 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
             cg_maxiter=1000, jitter=1e-8, tol_ll=1e-4, tol_ll_coarse=1e-2,
             lm=1e-3, eta1=1e-4, eta2=0.99, alpha1=0.25, alpha2=3.5,
             upper_mult=1.5, s_init=(0.05, 0.05, 0.05, 0.85),
-            seed=None, verbose=False, r=R_DEFAULT):
+            seed=None, verbose=False, r=R_DEFAULT,
+            A_dtype='float64', max_A_gb=16.0):
     """Monte-Carlo AI-REML for  V = s2a K_a + s2d K_d + s2gxg W + s2e I, with
     W = W_raw/c applied by its rank-r truncation.
 
@@ -747,6 +683,9 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     s2d-hat is sampling or coupling, never operator error.  W-hat is
     deterministic in (genotype, r) and its error is a truncation BIAS -- small
     under LD, large under linkage equilibrium, reduced only by raising r.
+
+    Every W apply in the fit goes through compute_WU_storedA on the (At, D)
+    built once by setup_storedA, in A_dtype and refused over max_A_gb.
 
     Score traces
     ------------
@@ -809,20 +748,31 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     k = 4
 
     # --- setup: genotype-only, done once ---
+    # Timed in three pieces (svd factors incl. c-hat, spectral ranges, the
+    # fixed-probe products K_i U / W U) plus their total, setup_sec.
+    t_setup0 = time.perf_counter()
     genes = split_into_genes(Z, G)
     F_list, P, c = setup_pooled(genes, r=r)      # c: the normalization divisor
+    _add_time('setup_svd', time.perf_counter() - t_setup0)
+    # The ONE un-wrapped W-hat apply every W apply below goes through.
+    At, Dst = setup_storedA(F_list, dtype=A_dtype, max_gb=max_A_gb)
+    # At/Dst hold everything the apply reads, so drop the per-gene copies.
+    # split_into_genes COPIES (fancy indexing), so this frees the Z_g copies.
+    F_list = genes = None
+    wu = lambda B: compute_WU_storedA(At, Dst, P, c, B)
     Kaapply = lambda B: compute_KU(Z, B)
     Kdapply = lambda B: compute_KU(Zd, B)
-    Wapply = lambda B: _center_cols(
-        compute_WU_pooled(genes, F_list, P, c, _center_cols(B)))
+    Wapply = lambda B: _center_cols(wu(_center_cols(B)))
 
     # Spectral ranges for the feasibility bound, genotype-only, computed ONCE.
     # K_a and K_d are Gram matrices, so their lower end is written as 0 rather
     # than estimated.  W-hat is NOT PSD, so both its ends are estimated and the
     # lower one may be negative.
+    t0 = time.perf_counter()
     _, lmax_a = _spectral_range(Kaapply, n)
     _, lmax_d = _spectral_range(Kdapply, n)
     lmin_w, lmax_w = _spectral_range(Wapply, n)
+    _add_time('setup_spectral', time.perf_counter() - t0)
     lmin_k = np.array([0.0, 0.0, lmin_w])       # K_a, K_d PSD exactly
     lmax_k = np.array([lmax_a, lmax_d, lmax_w])
 
@@ -857,10 +807,11 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
             return True
         _count_event('lam_min_exact')
         s2a_, s2d_, s2gxg_, s2e_ = s_vec
+        t0 = time.perf_counter()
         lo, _ = _spectral_range(
-            lambda B: _v_matvec(Z, Zd, genes, F_list, P, c,
-                                s2a_, s2d_, s2gxg_, s2e_, B),
+            lambda B: _v_matvec(Z, Zd, wu, s2a_, s2d_, s2gxg_, s2e_, B),
             n, iters=200)
+        _add_time('lam_min_exact', time.perf_counter() - t0)
         return lo > margin
 
     vary = y.var()
@@ -905,9 +856,13 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     Pbuf = np.zeros((n, Nmc))
     Gbuf = None
 
+    t0 = time.perf_counter()
     KaU = Kaapply(U)  # K_a U for the fixed probes: genotype-only, formed once
     KdU = Kdapply(U)  # K_d U   "        "
     WU = Wapply(U)    # W U     "        "
+    _add_time('setup_KU', time.perf_counter() - t0)
+    _add_time('setup', time.perf_counter() - t_setup0)
+    t_phase0 = time.perf_counter()      # coarse phase starts here
 
     def eval_grad_ai(s_at):
         """Score and average information at s_at, at the CURRENT n_probe.
@@ -918,11 +873,12 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
         """
         nonlocal xbuf, Gbuf
         s2a_, s2d_, s2gxg_, s2e_ = s_at
-        mv = lambda B: _v_matvec(Z, Zd, genes, F_list, P, c,
-                                 s2a_, s2d_, s2gxg_, s2e_, B)
+        mv = lambda B: _v_matvec(Z, Zd, wu, s2a_, s2d_, s2gxg_, s2e_, B)
 
         # --- x = V^{-1} y ---
+        t0 = time.perf_counter()
         xbuf = _cg_batched(mv, yc, x0=xbuf, tol=cg_tol, maxiter=cg_maxiter)
+        _add_time('solve_y', time.perf_counter() - t0)
         x_ = xbuf[:, 0]
 
         # data quadratics x'K_i x
@@ -930,8 +886,11 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
         # --- score traces tr(V^{-1} K_i): Hutchinson, exact probe solves ---
         Uc_ = U[:, :n_probe]
+        t0 = time.perf_counter()
         Psol = _cg_batched(mv, Uc_, x0=Pbuf[:, :n_probe], tol=cg_tol,
                            maxiter=cg_maxiter)
+        _add_time('solve_probe_coarse' if coarse else 'solve_probe_fine',
+                  time.perf_counter() - t0)
         Pbuf[:, :n_probe] = Psol
         sc = np.array([
             0.5 * (x_ @ Kax_ - np.mean(np.sum(Psol * KaU[:, :n_probe], axis=0))),
@@ -941,7 +900,9 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
         # --- average information: A_ij = 0.5 (K_i x)' V^{-1}(K_j x) ---
         KX = np.column_stack([Kax_, Kdx_, Wx_, x_])
+        t0 = time.perf_counter()
         Gbuf = _cg_batched(mv, KX, x0=Gbuf, tol=cg_tol, maxiter=cg_maxiter)
+        _add_time('solve_ai', time.perf_counter() - t0)
         ai = 0.5 * (KX.T @ Gbuf)
         return sc, 0.5 * (ai + ai.T)
 
@@ -998,6 +959,10 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
         # carries over, the radius being independent of the probe count.
         if coarse:
             if dLL_pred < tol_ll_coarse:
+                # Phase stamp: everything since setup was the coarse phase.
+                t_now = time.perf_counter()
+                _add_time('phase_coarse', t_now - t_phase0)
+                t_phase0 = t_now
                 coarse = False
                 n_probe = Nmc
                 switch_it = it
@@ -1070,6 +1035,8 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
                   f"  {'ACCEPT' if rho > eta1 else 'REJECT'}"
                   f"  |D p|={taken_dnorm:.4g}  Delta->{Delta:.4g}", flush=True)
 
+    # Phase stamp: from the switch (or from setup, single-phase) to here.
+    _add_time('phase_fine', time.perf_counter() - t_phase0)
     if verbose:
         print(f"switch at iter {switch_it}; rejected {n_reject} step(s); "
               f"final Delta={Delta:.4g}; SE={reml_se(AI, Nmc)}", flush=True)
@@ -1077,14 +1044,17 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
 
 def MC_REML(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
-            cg_maxiter=1000, seed=None, r=R_DEFAULT, verbose=False):
+            cg_maxiter=1000, seed=None, r=R_DEFAULT, verbose=False,
+            A_dtype='float64', max_A_gb=16.0):
     """Wrapper: returns (s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, AI).
 
     SEs from reml_se(AI, Nmc).  Nmc_coarse=None gives the single-phase fit.
+    A_dtype and max_A_gb set and bound the stored-A W apply (see mc_reml).
     """
     s, AI = mc_reml(Z, Zd, y, G, iters=iters, Nmc=Nmc, Nmc_coarse=Nmc_coarse,
                     cg_tol=cg_tol, cg_maxiter=cg_maxiter, seed=seed,
-                    verbose=verbose, r=r)
+                    verbose=verbose, r=r,
+                    A_dtype=A_dtype, max_A_gb=max_A_gb)
     s2a_hat, s2d_hat, s2gxg_hat, s2e_hat = s
     return s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, AI
 

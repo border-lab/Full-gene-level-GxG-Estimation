@@ -28,12 +28,10 @@ replicates, the old paired spread and the new unpaired spread agree to within
 Monte Carlo error.
 
 It also removes the caveat that used to attach to column 3: c-hat is the O(nm)
-third-moment plug-in (Function_MCREML.C_METHOD), not the exact c, so the
+third-moment plug-in (Function_MCREML.pooled_c), not the exact c, so the
 epistasis target used to be (c_exact / c-hat) * s2gxg rather than s2gxg.
 Forcing the realized variance absorbs that factor at the draw, so column 3's
-target is now the nominal number.  The ratio is still written out per run as
-c_gxg_after_normalization in result/c_<FILENAME>.txt, as a property of the
-genotype; no column depends on it.
+target is now the nominal number and no column depends on the ratio.
 
 WIDER FILES STILL PARSE, and that is the trap: an OLD 9-column file from this
 same pipeline, or a sibling's, is labelled by the same first-four names and then

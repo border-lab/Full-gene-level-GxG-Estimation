@@ -29,9 +29,14 @@ parser.add_argument('--mode', type=str, required=True)
 # It applies to the EPISTASIS kernel ONLY: K_a = Z_a Z_a'/m and K_d = Z_d Z_d'/m
 # are applied exactly at every r, so r never biases those estimates directly (it
 # can still move them through the coupling in the AI step).
-# verify_lowrank.py carries an independent exact implementation to check it
-# against, and that is the only place an alternative lives.
 parser.add_argument('--r', type=int, default=R_DEFAULT)
+# The W-hat apply: At = [sqrt(lam_s) q_s .* Z_g] for all genes is built once,
+# so W-hat U = (At(At'U) - D(D'U))/(2Pc) is two gemm pairs.  At is ~r times Z
+# in size: --A_dtype float32 halves it, and --max_A_gb refuses the build above
+# that.
+parser.add_argument('--A_dtype', choices=('float64', 'float32'),
+                    default='float64')
+parser.add_argument('--max_A_gb', type=float, default=16.0)
 # Print the AI-REML trace (one line per iteration: the four components and
 # max|step|) to STDOUT.  Off by default -- with it on, Step 3 must also be
 # launched with a real --output, since the pipeline sends stdout to /dev/null.
@@ -63,8 +68,8 @@ r = args.r
 # allele frequencies -- and is the SAME transformation the Cholesky job used, so
 # K_d is identical on both sides.  The epistasis kernel is the UNSTANDARDIZED,
 # C-NORMALIZED one (h_ab = Z_a .* Z_b, no centering and no 1/sigma_ab scaling,
-# the whole kernel then divided by c-hat = pooled_c, i.e. the O(nm)
-# third-moment plug-in C_METHOD selects), also exactly the kernel
+# the whole kernel then divided by c-hat = pooled_c, the O(nm)
+# third-moment plug-in), also exactly the kernel
 # Simulate_Cholesky.py drew the phenotype from -- the divisor is recomputed
 # here by the same deterministic function of the same genotype, so it is the
 # same number, bit for bit, and the plug-in's approximation error is common to
@@ -107,9 +112,9 @@ t_start = time.perf_counter()
 if args.verbose:
     print(f"--- rep{rep}: AI-REML trace, var(y)={y.var():.6f}, "
           f"columns s2a s2d s2gxg s2e ---", flush=True)
-s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, _ = MC_REML(Z, Zd, y, G, iters=iters,
-                                                  Nmc=nmc, seed=rep, r=r,
-                                                  verbose=args.verbose)
+s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, _ = MC_REML(
+    Z, Zd, y, G, iters=iters, Nmc=nmc, seed=rep, r=r, verbose=args.verbose,
+    A_dtype=args.A_dtype, max_A_gb=args.max_A_gb)
 elapsed = time.perf_counter() - t_start
 # How many LINEAR OPERATOR APPLIES that fit actually cost.  mc_reml zeroes the
 # counters on entry, so this snapshot is THIS replicate and nothing else -- the
@@ -122,8 +127,8 @@ op_counts = get_op_counts()
 # differs from its _unstd_4VC sibling.  There, REML on the raw H estimated the
 # component V_gamma = s2gxg and the realized variance had to be recovered as
 # V_l = c-hat * s2gxg-hat, so the plug-in's error landed on the ESTIMATE and
-# only on the estimate.  Here the same c-hat -- the O(nm) third-moment plug-in,
-# C_METHOD = 'moment' -- is already INSIDE the kernel, both when the phenotype
+# only on the estimate.  Here the same c-hat -- the O(nm) third-moment plug-in
+# pooled_c -- is already INSIDE the kernel, both when the phenotype
 # was drawn and when it is fitted, so
 #
 #     E[Var-hat(g_gxg)] = (c / c-hat) s2gxg   and   V_l = s2gxg-hat ,
@@ -138,9 +143,7 @@ op_counts = get_op_counts()
 # and leaving column 3's target at (c / c-hat) * s2gxg rather than s2gxg.  With
 # force_realized=True the simulated component is rescaled to hit s2gxg EXACTLY,
 # so that factor is absorbed at the draw and column 3's target is the nominal
-# number with nothing to correct for.  The Cholesky job still writes the ratio
-# out per run as c_gxg_after_normalization (result/c_<FILENAME>.txt) as a
-# property of the genotype, but no column depends on it any more.
+# number with nothing to correct for; no column depends on the ratio.
 #
 # NO Vl_hat COLUMN.  It was identically s2gxg_hat in this pipeline -- kept only
 # so the row matched the sibling layouts -- and a column that repeats another
@@ -192,10 +195,38 @@ with open(f"{time_dir}/rep{rep}.txt", 'w') as f:
 #
 # The keys are written in a FIXED order with 0 defaults, so every rep file has
 # the same lines whether or not a counter was ever bumped.
+#
+# WALL-CLOCK TWINS (keys ending "_sec", seconds on THIS machine).  Same file,
+# same averaging, so a run's summary carries both what was asked for and how
+# long each kind of work took here.  They NEST -- V_sec contains the K and W
+# time spent inside V applies, W_sec contains the two W_* pieces, each
+# solve_*_sec contains its V applies -- so they are not summed; the
+# *_sec_per_col lines (seconds per n-vector) are the comparable unit for the
+# three operators.  The W_* pieces split a W apply into its two gemm pairs:
+# W_gemm_A = At(At'U), W_gemm_D = D(D'U); setup_A_sec is the one-time At build.
+# Solve groups:
+# solve_y (V^-1 y), solve_probe_coarse / _fine (V^-1 U, split by phase),
+# solve_ai (V^-1 [K_i x]); setup is svd + spectral + K_i U; phase_coarse /
+# phase_fine stamp the switch; lam_min_exact is the exact feasibility fallback.
 OP_KEYS = ("reml_iters", "cg_solves", "cg_iters",
            "V_applies", "V_columns",
            "K_applies", "K_columns",
-           "W_applies", "W_columns")
+           "W_applies", "W_columns",
+           "lam_min_exact",
+           "V_sec", "K_sec", "W_sec",
+           "V_sec_per_col", "K_sec_per_col", "W_sec_per_col",
+           "W_gemm_A_sec", "W_gemm_D_sec",
+           "solve_y_sec", "solve_probe_coarse_sec", "solve_probe_fine_sec",
+           "solve_ai_sec",
+           "setup_sec", "setup_svd_sec", "setup_spectral_sec", "setup_KU_sec",
+           "setup_A_sec",
+           "phase_coarse_sec", "phase_fine_sec", "lam_min_exact_sec")
+# Seconds per column for the three operators: the machine-dependent unit cost
+# of one n-vector through each apply.  Nested as above: V includes its K and W.
+for _op in ("V", "K", "W"):
+    _cols = op_counts.get(f"{_op}_columns", 0)
+    op_counts[f"{_op}_sec_per_col"] = (
+        op_counts.get(f"{_op}_sec", 0.0) / _cols if _cols else 0.0)
 op_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/time/op_counts/{run_tag}"
 os.makedirs(op_dir, exist_ok=True)
 with open(f"{op_dir}/rep{rep}.txt", 'w') as f:
@@ -210,3 +241,20 @@ print(f"operator applies this replicate: V={op_counts.get('V_applies', 0)} "
       f"{op_counts.get('reml_iters', 0)} REML iters, "
       f"{op_counts.get('cg_iters', 0)} CG iters in "
       f"{op_counts.get('cg_solves', 0)} solves -> {op_dir}/rep{rep}.txt")
+_g = lambda k: op_counts.get(k, 0.0)
+_wsec = _g('W_sec')
+_wpct = lambda k: 100.0 * _g(k) / _wsec if _wsec else 0.0
+print(f"timing this replicate ({elapsed:.2f} s total): "
+      f"setup {_g('setup_sec'):.2f} s "
+      f"(svd {_g('setup_svd_sec'):.2f}, spectral {_g('setup_spectral_sec'):.2f}, "
+      f"K_iU/WU {_g('setup_KU_sec'):.2f}); "
+      f"phase coarse {_g('phase_coarse_sec'):.2f} s, fine {_g('phase_fine_sec'):.2f} s; "
+      f"solves: y {_g('solve_y_sec'):.2f}, probe coarse "
+      f"{_g('solve_probe_coarse_sec'):.2f}, probe fine "
+      f"{_g('solve_probe_fine_sec'):.2f}, AI {_g('solve_ai_sec'):.2f}; "
+      f"lam_min_exact {_g('lam_min_exact_sec'):.2f} s")
+print(f"seconds per column: V {_g('V_sec_per_col'):.3e}, "
+      f"K {_g('K_sec_per_col'):.3e}, W {_g('W_sec_per_col'):.3e}; "
+      f"W apply split: At gemm {_wpct('W_gemm_A_sec'):.1f}%, "
+      f"D gemm {_wpct('W_gemm_D_sec'):.1f}%; "
+      f"At build {_g('setup_A_sec'):.2f} s")

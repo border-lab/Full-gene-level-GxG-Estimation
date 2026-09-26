@@ -116,7 +116,9 @@ fi
 # Keys are emitted in FIRST-SEEN order, which is the fixed order
 # Simulate_MCREML.py writes them in, so the summary reads the same every run
 # and picks up new counters automatically if that list ever grows.  std is
-# ddof=0, matching the realized-variance summaries elsewhere.
+# ddof=0, matching the realized-variance summaries elsewhere.  Keys ending
+# "_sec" are the wall-clock timers Simulate_MCREML.py writes next to the
+# counts (seconds on the node that ran the rep); same reduction, decimals kept.
 OP_REP=$DIR/time/op_counts/$filename
 OP_OUT=$DIR/time/result/opcount_${filename}.txt
 n_op=$(ls -1 $OP_REP/rep*.txt 2>/dev/null | wc -l)
@@ -137,10 +139,14 @@ if [ "$n_op" -gt 0 ]; then
                 mean = sum[k] / n
                 var = sq[k] / n - mean * mean
                 if (var < 0) var = 0            # rounding, not a real negative
-                printf "%s_mean %.4f\n", k, mean
-                printf "%s_std %.4f\n",  k, sqrt(var)
-                printf "%s_min %.0f\n",  k, min[k]
-                printf "%s_max %.0f\n",  k, max[k]
+                # counts: 4 decimals on mean/std, integers on min/max.  The
+                # "_sec" timers (per-column ones are ~1e-4) get 6 throughout.
+                if (k ~ /_sec/) { fm = "%.6f"; fx = "%.6f" }
+                else            { fm = "%.4f"; fx = "%.0f" }
+                printf "%s_mean " fm "\n", k, mean
+                printf "%s_std "  fm "\n", k, sqrt(var)
+                printf "%s_min "  fx "\n", k, min[k]
+                printf "%s_max "  fx "\n", k, max[k]
             }
             printf "n_reps %d\n", nfile
         }

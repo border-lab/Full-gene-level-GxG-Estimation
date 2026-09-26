@@ -1,8 +1,8 @@
 #!/bin/bash
 
-N=32000
-M=16000
-G=160
+N=400
+M=4800
+G=48
 S2A=0.1
 S2D=0.1
 S2GXG=0.1
@@ -12,11 +12,12 @@ ITERS=30
 NMC=100                 # FINE phase; mc_reml runs a coarse S=15 phase first
 R=30
 VERBOSE=--verbose
-MEM=48G
-MEM_CHOL=96G
-MEM_PHENO=48G
-ARRAY=8                 # concurrent array tasks; each takes 64 cores
+MEM=2G
+MEM_CHOL=48G
+MEM_PHENO=24G
+ARRAY=50                 # concurrent array tasks; each takes 64 cores
 PARTITION=statgen-gpu
+NODE=lanec2-4-1          # every job runs on this node only
 
 # Start step: 1 = all, 2 = Cholesky done, 3 = phenotypes done, 4 = combine only.
 # A skipped step is assumed FINISHED (no SLURM dependency on it), so check the
@@ -35,16 +36,16 @@ mkdir -p $DIR/error
 
 # Step 1: Cholesky (single job) -- factors the three dense GRMs: K_a = Z_a Z_a'/m,
 # K_d = Z_d Z_d'/m, and the pooled unstandardized W = W_raw/c-hat (EXACT kernel,
-# not the truncation).  c-hat is the O(nm) third-moment plug-in, fixed by the
-# module constant Function_MCREML.C_METHOD = 'moment' (no flag, so simulation and
-# estimation cannot diverge).  All three c routes plus c_exact/c-hat go to
-# result/c_$FILENAME.txt.  The GRMs are discarded after factorisation; the
-# estimator recomputes c-hat from the genotype.
+# not the truncation).  c-hat is the O(nm) third-moment plug-in
+# Function_MCREML.pooled_c (no flag, so simulation and estimation cannot
+# diverge), written to result/c_$FILENAME.txt.  The GRMs are discarded after
+# factorisation; the estimator recomputes c-hat from the genotype.
 DEP=""
 if [ "$START" -le 1 ]; then
 JOB1=$(sbatch --parsable \
     --job-name=chol_mcreml \
     -p $PARTITION \
+    --nodelist=$NODE \
     --error=$DIR/error/cholesky_%j.err \
     --output=/dev/null \
     --nodes=1 \
@@ -64,14 +65,15 @@ if [ "$START" -le 2 ]; then
 JOB2=$(sbatch --parsable $DEP \
     --job-name=pheno_mcreml \
     -p $PARTITION \
+    --nodelist=$NODE \
     --error=$DIR/error/phenotype_%A.err \
     --open-mode=append \
     --output=/dev/null \
     --nodes=1 \
     --mem=$MEM_PHENO \
     --ntasks=1 \
-    --cpus-per-task=64 \
-    --array=1-100%$ARRAY \
+    --cpus-per-task=1 \
+    --array=1-50%$ARRAY \
     --time=12:00:00 \
     $DIR/Phenotype.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE)
 echo "Phenotype job: $JOB2"
@@ -88,14 +90,15 @@ if [ "$START" -le 3 ]; then
 JOB3=$(sbatch --parsable $DEP \
     --job-name=mcreml \
     -p $PARTITION \
+    --nodelist=$NODE \
     --error=$DIR/error/mcreml_%A.err \
     --open-mode=append \
     --output=$DIR/error/mcreml_%A_%a.out \
     --nodes=1 \
     --mem=$MEM \
     --ntasks=1 \
-    --cpus-per-task=64 \
-    --array=1-100%$ARRAY \
+    --cpus-per-task=1 \
+    --array=1-50%$ARRAY \
     --time=48:00:00 \
     $DIR/MCREML.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $ITERS $NMC $R $VERBOSE)
 echo "MC-AI-REML job: $JOB3  (4 VC: s2a K_a + s2d K_d + s2gxg W + s2e I, W = W_raw/c c-normalized; W apply: low-rank, r=$R; trace estimator: hutchinson, Nmc=$NMC)"
@@ -122,6 +125,7 @@ fi
 JOB4=$(sbatch --parsable $DEP \
     --job-name=combine_mcreml \
     -p $PARTITION \
+    --nodelist=$NODE \
     --error=$DIR/error/combine_%j.err \
     --output=$DIR/error/combine_%j.out \
     --nodes=1 \

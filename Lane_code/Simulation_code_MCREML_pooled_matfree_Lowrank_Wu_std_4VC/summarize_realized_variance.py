@@ -27,11 +27,9 @@ So a run at s2a = s2d = s2gxg = 0.1, s2e = 0.7 should show the four means at
 the cheapest end-to-end check that the normalization is in force.
 
 The epistasis mean is the one to read with its factor in hand: c-hat is the
-O(nm) third-moment plug-in (Function_MCREML.C_METHOD = 'moment'), so vell_gxg
-centres on (c_exact / c-hat) * s2gxg, and that ratio is written out per run as
-c_gxg_after_normalization in result/c_<FILENAME>.txt.  A vell_gxg_mean that
-sits several se from s2gxg but ON that number is the plug-in's residual, not a
-broken normalization; one that sits off BOTH is worth chasing.
+O(nm) third-moment plug-in (Function_MCREML.pooled_c), so vell_gxg centres on
+(c_exact / c-hat) * s2gxg, not exactly s2gxg.  A vell_gxg_mean that sits a
+little off s2gxg is the plug-in's residual, not a broken normalization.
 
 Rather than keeping the 200 draws, <out_file> records mean / std / se / n for
 each component:
