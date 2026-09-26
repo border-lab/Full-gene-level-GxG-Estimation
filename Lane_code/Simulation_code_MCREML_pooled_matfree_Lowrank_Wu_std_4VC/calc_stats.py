@@ -23,9 +23,7 @@ of that replicate's effect draws, so an estimate could be judged against its own
 draw rather than the nominal target.  simulate_phenotype now rescales each drawn
 component to hit its target exactly (force_realized=True), which makes those
 four columns constants equal to the targets -- so the paired comparison and the
-nominal one became the same comparison, and the columns went.  Measured over 30
-replicates, the old paired spread and the new unpaired spread agree to within
-Monte Carlo error.
+nominal one became the same comparison, and the columns went.
 
 It also removes the caveat that used to attach to column 3: c-hat is the O(nm)
 third-moment plug-in (Function_MCREML.pooled_c), not the exact c, so the
@@ -33,35 +31,23 @@ epistasis target used to be (c_exact / c-hat) * s2gxg rather than s2gxg.
 Forcing the realized variance absorbs that factor at the draw, so column 3's
 target is now the nominal number and no column depends on the ratio.
 
-WIDER FILES STILL PARSE, and that is the trap: an OLD 9-column file from this
-same pipeline, or a sibling's, is labelled by the same first-four names and then
-Vl_hat, Vl_real, ... -- the paired block below reappears and the summary is
-correct for that file.  But the column count alone cannot tell a two- or
-three-component sibling's layout apart from this one, so read a sibling's result
-file with that pipeline's own calc_stats.py; this script would silently
-mislabel it.
+OLDER FILES STILL PARSE.  A 9-column file is the old layout with Vl_hat and
+the four realized variances, and its paired block reappears.  The column
+count alone cannot tell a two- or three-component sibling's layout apart from
+these, so read a sibling's result file with that pipeline's own calc_stats.py;
+this script would silently mislabel it.
 
-Two things beyond per-column moments, both of which exist because the columns
-come in ESTIMATE / REALIZED pairs:
-
-  PAIRED DIFFERENCES.  Each estimate has the draw-level quantity it should
-  recover in the SAME row, so the mean of (estimate - realized) over replicates
-  is the bias against what was actually drawn -- a sharper target than the
-  nominal s2a / s2d / s2gxg / s2e, which the draws themselves scatter around by
-  O(1/sqrt n).  Reported for every pair present.  The gxg pair is listed as
-  Vl_hat - Vl_real; since Vl_hat = s2gxg_hat here, that IS the s2gxg pair, and
-  it is not printed twice.
-
-  BOUNDARY REPLICATES.  mc_reml clamps components to [1e-9, 5 var(y)], and a
-  replicate whose likelihood peaks at a component = 0 sticks there -- after
-  which the OTHER components converge to the wrong values, because the
-  AI-Newton step is never re-projected onto the free subspace (the known defect
-  documented in mc_reml).  Such rows are counted and named; --drop-boundary
-  recomputes everything without them.  They are NOT dropped by default: they
-  are a real property of the estimator at these sample sizes, and silently
-  discarding them would flatter the summary.  Expect the DOMINANCE component to
-  be the most frequent offender -- it carries the weakest signal of the four --
-  so read the per-component counts, not just the total.
+BOUNDARY REPLICATES.  mc_reml constrains s2a, s2d, s2gxg >= 0 and
+s2e >= 1e-9 var(y) (BOLT-REML's parameter domain), so a replicate whose
+likelihood peaks at a component = 0 ends ON that bound, and the other
+components still converge in the free subspace.  A component <= 1e-8 counts
+as at its bound, and the fraction of replicates with each component there is
+reported.  Expect the DOMINANCE component to be the most frequent -- it carries
+the weakest signal of the four.  --drop-boundary recomputes the moments without
+those rows, but they are NOT dropped by default: at these sample sizes a zero
+estimate is a real outcome, and discarding it would bias the component means
+up.  Whether a replicate converged is in the MC-AI-REML job's stdout log, not
+in the result file.
 
 (realized_variance/<FILENAME>.txt is NOT a row file: it already holds the
 mean/std of the realized variances over the reps, written by
@@ -70,17 +56,18 @@ summarize_realized_variance.py.)
 import sys
 import math
 
+COMPONENTS = ["a", "d", "gxg", "e"]
 ALL_LABELS = ["a", "d", "gxg", "e", "Vl_hat",
               "Vl_real", "Va_real", "Vd_real", "Ve_real"]
 
-# (estimate label, realized label) -- the pairs the row layout puts side by side.
+# (estimate label, realized label) -- the pairs the old 9-column layout put
+# side by side.
 PAIRS = [("Vl_hat", "Vl_real"), ("a", "Va_real"), ("d", "Vd_real"),
          ("e", "Ve_real")]
 
-# Components mc_reml can clamp to its lower bound (1e-9).  The threshold sits a
-# decade above it, so a value that merely converged very small is not mistaken
-# for a clamped one.
-FITTED = ["a", "d", "gxg", "e"]
+# A component at or below this counts as at its bound (the genetic ones sit at
+# exactly 0 there).  A decade above s2e's 1e-9 var(y) floor, so a small
+# converged value is not mistaken for a bound hit.
 CLAMP_LO = 1e-8
 
 
@@ -139,42 +126,37 @@ def _moments(c):
     return mean, std, std / math.sqrt(n)
 
 
-def boundary_rows(rows, labels):
-    """Indices of replicates with a fitted component at the lower clamp.
-
-    Returns (indices, per-label counts).  Only the components mc_reml actually
-    optimizes are checked: Vl_hat is a positive multiple of s2gxg_hat and would
-    just re-report the same replicates, and the realized columns are draws, not
-    fits.
-    """
-    idx = {}
-    for name in FITTED:
+def bound_flags(rows, labels):
+    """Per replicate, the components at their lower bound: {name: [bool]}."""
+    out = {}
+    for name in COMPONENTS:
         if name in labels:
-            idx[name] = labels.index(name)
-    counts = {name: 0 for name in idx}
-    hits = []
-    for j, row in enumerate(rows):
-        clamped = [name for name, i in idx.items() if row[i] <= CLAMP_LO]
-        if clamped:
-            hits.append(j)
-            for name in clamped:
-                counts[name] += 1
-    return hits, counts
+            i = labels.index(name)
+            out[name] = [row[i] <= CLAMP_LO for row in rows]
+    return out
 
 
 def summarise(filename, show_name=False, drop_boundary=False):
     rows = read_rows(filename)
     labels = labels_for(len(rows[0]))
     width = max(len(x) for x in labels)
-
-    hits, counts = boundary_rows(rows, labels)
     n_all = len(rows)
+
+    flags = bound_flags(rows, labels)
+    hits = [j for j in range(n_all) if any(f[j] for f in flags.values())]
+
+    # --- components at their bound, always over ALL replicates -------------
+    detail = ", ".join(f"{name} {100.0 * sum(f) / n_all:.1f}% ({sum(f)})"
+                       for name, f in flags.items())
+    bound_line = (f"At lower bound (value <= {CLAMP_LO:g}): {detail}; "
+                  f"any component {len(hits)}/{n_all}")
+
     if drop_boundary and hits:
         keep = set(range(n_all)) - set(hits)
         rows = [rows[j] for j in sorted(keep)]
         if not rows:
-            raise SystemExit(f"{filename}: every replicate is boundary-clamped; "
-                             f"nothing left to summarise.")
+            raise SystemExit(f"{filename}: every replicate has a component at "
+                             f"its bound; nothing left to summarise.")
     n = len(rows)
 
     if show_name:
@@ -189,7 +171,7 @@ def summarise(filename, show_name=False, drop_boundary=False):
               f"Median: {_median(c):.6f}, Std: {std:.6f}, "
               f"95% CI: [{mean - 1.96 * se:.6f}, {mean + 1.96 * se:.6f}]")
 
-    # --- estimate vs. what this replicate actually realized -----------------
+    # --- estimate vs. what this replicate actually realized (9-col files) --
     pairs = [(e, r) for e, r in PAIRS if e in labels and r in labels]
     if pairs:
         print("Paired (estimate - realized), the bias against each replicate's own draw:")
@@ -203,15 +185,7 @@ def summarise(filename, show_name=False, drop_boundary=False):
                   f"{mean + 1.96 * se:+.6f}]{flag}")
         print("  (* = CI excludes 0)")
 
-    # --- the optimizer's boundary cases -------------------------------------
-    if hits:
-        detail = ", ".join(f"{name}={counts[name]}" for name in FITTED
-                           if counts.get(name))
-        print(f"Boundary: {len(hits)}/{n_all} replicates have a component at the "
-              f"lower clamp ({detail}).")
-        if not drop_boundary:
-            print("  Their OTHER components are biased too (see mc_reml's known "
-                  "defect); rerun with --drop-boundary to exclude them.")
+    print(bound_line)
 
 
 def main():

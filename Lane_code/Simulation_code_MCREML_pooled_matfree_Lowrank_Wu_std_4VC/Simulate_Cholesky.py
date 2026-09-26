@@ -68,7 +68,7 @@ SNP = SNP.to_numpy()
 # is ever written to disk or loaded downstream.  simulate_Cholesky_4vc builds
 # and releases them one at a time to keep the peak near 4 n-by-n arrays -- this
 # is the memory-critical job of the pipeline.
-La, Ld, Lgxg, w_build_time, c_norm = simulate_Cholesky_4vc(
+La, Ld, Lgxg, w_build_time, _ = simulate_Cholesky_4vc(
     SNP, G, s2a=s2a, s2d=s2d, s2gxg=s2gxg, s2e=s2e)
 
 # Save the Cholesky factors (per variance target)
@@ -91,13 +91,3 @@ fname = f"{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}"
 with open(f"{w_time_dir}/W_timing_{fname}.txt", 'w') as f:
     f.write(f"{w_build_time:.4f}\n")
 print(f"W build time (simulation only): {w_build_time:.4f} s -> {w_time_dir}/W_timing_{fname}.txt")
-
-# The normalization constant, written out next to the run: c_hat is the divisor
-# that WAS applied to the kernel, taken straight from simulate_Cholesky_4vc so
-# this file cannot drift from what was built.
-result_dir = "/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/result"
-os.makedirs(result_dir, exist_ok=True)
-with open(f"{result_dir}/c_{fname}.txt", 'w') as f:
-    f.write(f"c_hat {c_norm:.10f}\n")
-print(f"c-hat applied to W (third moment) = {c_norm:.6f} "
-      f"-> {result_dir}/c_{fname}.txt")

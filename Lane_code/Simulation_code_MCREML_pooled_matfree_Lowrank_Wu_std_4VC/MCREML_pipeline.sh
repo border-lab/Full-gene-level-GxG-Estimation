@@ -12,6 +12,7 @@ ITERS=30
 NMC=100                 # FINE phase; mc_reml runs a coarse S=15 phase first
 R=30
 VERBOSE=--verbose
+W_ROUTE=storedA         # W-hat apply: storedA (fast, n*r*m_W memory) | bcast (no extra memory)
 MEM=2G
 MEM_CHOL=48G
 MEM_PHENO=24G
@@ -38,7 +39,7 @@ mkdir -p $DIR/error
 # K_d = Z_d Z_d'/m, and the pooled unstandardized W = W_raw/c-hat (EXACT kernel,
 # not the truncation).  c-hat is the O(nm) third-moment plug-in
 # Function_MCREML.pooled_c (no flag, so simulation and estimation cannot
-# diverge), written to result/c_$FILENAME.txt.  The GRMs are discarded after
+# diverge).  The GRMs are discarded after
 # factorisation; the estimator recomputes c-hat from the genotype.
 DEP=""
 if [ "$START" -le 1 ]; then
@@ -100,7 +101,7 @@ JOB3=$(sbatch --parsable $DEP \
     --cpus-per-task=1 \
     --array=1-50%$ARRAY \
     --time=48:00:00 \
-    $DIR/MCREML.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $ITERS $NMC $R $VERBOSE)
+    $DIR/MCREML.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $ITERS $NMC $R $VERBOSE --w_route $W_ROUTE)
 echo "MC-AI-REML job: $JOB3  (4 VC: s2a K_a + s2d K_d + s2gxg W + s2e I, W = W_raw/c c-normalized; W apply: low-rank, r=$R; trace estimator: hutchinson, Nmc=$NMC)"
 DEP="--dependency=afterok:$JOB3"
 fi

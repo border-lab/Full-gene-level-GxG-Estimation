@@ -30,10 +30,16 @@ parser.add_argument('--mode', type=str, required=True)
 # are applied exactly at every r, so r never biases those estimates directly (it
 # can still move them through the coupling in the AI step).
 parser.add_argument('--r', type=int, default=R_DEFAULT)
-# The W-hat apply: At = [sqrt(lam_s) q_s .* Z_g] for all genes is built once,
-# so W-hat U = (At(At'U) - D(D'U))/(2Pc) is two gemm pairs.  At is ~r times Z
-# in size: --A_dtype float32 halves it, and --max_A_gb refuses the build above
-# that.
+# The W-hat apply route -- same truncation, same estimates to round-off:
+#   storedA (default)  At = [sqrt(lam_s) q_s .* Z_g] for all genes is built
+#                      once, so W-hat U = (At(At'U) - D(D'U))/(2Pc) is two gemm
+#                      pairs.  Fastest on wide applies, but At is ~r times Z in
+#                      size and bandwidth-bound: --A_dtype float32 halves it,
+#                      and --max_A_gb refuses the build above that.
+#   bcast              gene by gene from the SVD factors, scaling U by q_s.  No
+#                      extra memory; more robust on a crowded node.  --A_dtype
+#                      and --max_A_gb are ignored.
+parser.add_argument('--w_route', choices=W_ROUTES, default='storedA')
 parser.add_argument('--A_dtype', choices=('float64', 'float32'),
                     default='float64')
 parser.add_argument('--max_A_gb', type=float, default=16.0)
@@ -112,9 +118,9 @@ t_start = time.perf_counter()
 if args.verbose:
     print(f"--- rep{rep}: AI-REML trace, var(y)={y.var():.6f}, "
           f"columns s2a s2d s2gxg s2e ---", flush=True)
-s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, _ = MC_REML(
+s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, _, info = MC_REML(
     Z, Zd, y, G, iters=iters, Nmc=nmc, seed=rep, r=r, verbose=args.verbose,
-    A_dtype=args.A_dtype, max_A_gb=args.max_A_gb)
+    w_route=args.w_route, A_dtype=args.A_dtype, max_A_gb=args.max_A_gb)
 elapsed = time.perf_counter() - t_start
 # How many LINEAR OPERATOR APPLIES that fit actually cost.  mc_reml zeroes the
 # counters on entry, so this snapshot is THIS replicate and nothing else -- the
@@ -156,14 +162,13 @@ op_counts = get_op_counts()
 # Save result, 4 columns -- the FIT and nothing else:
 #
 #   (s2a_hat, s2d_hat, s2gxg_hat, s2e_hat)
-#    V_a      V_d      V_gamma    V_e
 #
-# ALL FOUR ARE ON THE REALIZED-VARIANCE SCALE and all four are directly
-# comparable to the nominal targets: with S2A = S2D = S2GXG = 0.1 and S2E = 0.7
-# the four column means should sit at 0.1 / 0.1 / 0.1 / 0.7, with no rescaling
-# and no per-replicate reference to pair against.  That is what forcing the
-# realized variances bought -- the targets are exact, so the nominal comparison
-# IS the paired comparison.
+# ALL FOUR ARE ON THE REALIZED-VARIANCE SCALE and directly comparable to the
+# nominal targets: with S2A = S2D = S2GXG = 0.1 and S2E = 0.7 the four column
+# means should sit at 0.1 / 0.1 / 0.1 / 0.7, with no rescaling and no
+# per-replicate reference to pair against.  The optimizer's diagnostics
+# (converged, rejected steps, components at their bound) go to this job's
+# stdout log only.
 output_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/result/{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}"
 os.makedirs(output_dir, exist_ok=True)
 filename = f"{output_dir}/rep{rep}.txt"
@@ -199,28 +204,33 @@ with open(f"{time_dir}/rep{rep}.txt", 'w') as f:
 # WALL-CLOCK TWINS (keys ending "_sec", seconds on THIS machine).  Same file,
 # same averaging, so a run's summary carries both what was asked for and how
 # long each kind of work took here.  They NEST -- V_sec contains the K and W
-# time spent inside V applies, W_sec contains the two W_* pieces, each
+# time spent inside V applies, W_sec contains the W_* pieces, each
 # solve_*_sec contains its V applies -- so they are not summed; the
 # *_sec_per_col lines (seconds per n-vector) are the comparable unit for the
-# three operators.  The W_* pieces split a W apply into its two gemm pairs:
-# W_gemm_A = At(At'U), W_gemm_D = D(D'U); setup_A_sec is the one-time At build.
+# three operators.  The W_* pieces split a W apply by route, and the other
+# route's keys are simply 0:
+#   storedA  W_gemm_A = At(At'U), W_gemm_D = D(D'U); setup_A_sec = the At build
+#   bcast    W_bcast = the q_s .* U broadcast, W_gemm1 = Zg'(.), W_gemm2 =
+#            Zg(.), W_einsumD = the lam contraction plus the D correction
 # Solve groups:
 # solve_y (V^-1 y), solve_probe_coarse / _fine (V^-1 U, split by phase),
-# solve_ai (V^-1 [K_i x]); setup is svd + spectral + K_i U; phase_coarse /
-# phase_fine stamp the switch; lam_min_exact is the exact feasibility fallback.
+# solve_ai (V^-1 [K_i x]); setup is svd + At + K_i U; phase_coarse /
+# phase_fine stamp the switch; cg_negcurv counts CG solves stopped because V
+# was not positive definite at the point being evaluated.
 OP_KEYS = ("reml_iters", "cg_solves", "cg_iters",
            "V_applies", "V_columns",
            "K_applies", "K_columns",
            "W_applies", "W_columns",
-           "lam_min_exact",
+           "cg_negcurv",
            "V_sec", "K_sec", "W_sec",
            "V_sec_per_col", "K_sec_per_col", "W_sec_per_col",
            "W_gemm_A_sec", "W_gemm_D_sec",
+           "W_bcast_sec", "W_gemm1_sec", "W_gemm2_sec", "W_einsumD_sec",
            "solve_y_sec", "solve_probe_coarse_sec", "solve_probe_fine_sec",
            "solve_ai_sec",
-           "setup_sec", "setup_svd_sec", "setup_spectral_sec", "setup_KU_sec",
+           "setup_sec", "setup_svd_sec", "setup_KU_sec",
            "setup_A_sec",
-           "phase_coarse_sec", "phase_fine_sec", "lam_min_exact_sec")
+           "phase_coarse_sec", "phase_fine_sec")
 # Seconds per column for the three operators: the machine-dependent unit cost
 # of one n-vector through each apply.  Nested as above: V includes its K and W.
 for _op in ("V", "K", "W"):
@@ -246,15 +256,26 @@ _wsec = _g('W_sec')
 _wpct = lambda k: 100.0 * _g(k) / _wsec if _wsec else 0.0
 print(f"timing this replicate ({elapsed:.2f} s total): "
       f"setup {_g('setup_sec'):.2f} s "
-      f"(svd {_g('setup_svd_sec'):.2f}, spectral {_g('setup_spectral_sec'):.2f}, "
+      f"(W route {args.w_route}; svd {_g('setup_svd_sec'):.2f}, "
+      f"At {_g('setup_A_sec'):.2f}, "
       f"K_iU/WU {_g('setup_KU_sec'):.2f}); "
       f"phase coarse {_g('phase_coarse_sec'):.2f} s, fine {_g('phase_fine_sec'):.2f} s; "
       f"solves: y {_g('solve_y_sec'):.2f}, probe coarse "
       f"{_g('solve_probe_coarse_sec'):.2f}, probe fine "
       f"{_g('solve_probe_fine_sec'):.2f}, AI {_g('solve_ai_sec'):.2f}; "
-      f"lam_min_exact {_g('lam_min_exact_sec'):.2f} s")
+      f"cg_negcurv {op_counts.get('cg_negcurv', 0)}")
+print(f"optimizer: converged={info['converged']}, iters={info['n_iters']}, "
+      f"rejected={info['n_reject']}, switch at iter {info['switch_it']}, "
+      f"at_bound={info['at_bound']}")
+if args.w_route == 'storedA':
+    _split = (f"At gemm {_wpct('W_gemm_A_sec'):.1f}%, "
+              f"D gemm {_wpct('W_gemm_D_sec'):.1f}%; "
+              f"At build {_g('setup_A_sec'):.2f} s")
+else:
+    _split = (f"broadcast {_wpct('W_bcast_sec'):.1f}%, "
+              f"gemm1 {_wpct('W_gemm1_sec'):.1f}%, "
+              f"gemm2 {_wpct('W_gemm2_sec'):.1f}%, "
+              f"lam+D {_wpct('W_einsumD_sec'):.1f}%")
 print(f"seconds per column: V {_g('V_sec_per_col'):.3e}, "
       f"K {_g('K_sec_per_col'):.3e}, W {_g('W_sec_per_col'):.3e}; "
-      f"W apply split: At gemm {_wpct('W_gemm_A_sec'):.1f}%, "
-      f"D gemm {_wpct('W_gemm_D_sec'):.1f}%; "
-      f"At build {_g('setup_A_sec'):.2f} s")
+      f"W route {args.w_route}: {_split}")

@@ -57,15 +57,8 @@ status=0
 # the four variance components REML fitted and nothing else.  All four are on
 # the realized-variance scale (the kernel carries the 1/c-hat, so no post-fit
 # correction is applied), so the column means are directly comparable to the
-# nominal S2A / S2D / S2GXG / S2E.
-#
-# THE ROW USED TO BE NINE COLUMNS: these four, then V_l (identically V_gamma
-# here, kept only to match the sibling layouts), then the realized variances
-# Var-hat(.) of that replicate's four effect draws.  The Phenotype step now
-# rescales each drawn component to hit its target exactly, which made those
-# four realized columns constants equal to the targets, so they and V_l are
-# gone.  A result file from THIS pipeline is therefore narrower than a
-# sibling's -- read it with this directory's calc_stats.py.
+# nominal S2A / S2D / S2GXG / S2E.  The layout differs from the siblings' --
+# read it with this directory's calc_stats.py.
 REP_DIR=$DIR/result/$filename
 OUT=$DIR/result/${filename}.txt
 combined=0
