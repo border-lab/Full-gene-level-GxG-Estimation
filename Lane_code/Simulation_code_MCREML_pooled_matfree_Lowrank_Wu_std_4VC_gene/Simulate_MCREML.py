@@ -16,6 +16,10 @@ parser.add_argument('--iters', type=int, default=30)
 parser.add_argument('--nmc', type=int, default=100)   # FINE phase; coarse is 15
 parser.add_argument('--rep', type=int, required=True)
 parser.add_argument('--mode', type=str, required=True)
+# Percent of the genotype that is GENES: the first round(m * gene_pct / 100)
+# SNPs are cut into G contiguous genes for the epistasis kernel; the rest are
+# in no gene.  K_a and K_d use all m SNPs regardless.  e.g. --gene_pct 5.
+parser.add_argument('--gene_pct', type=float, required=True)
 # The score traces tr(V^{-1} K_i) are Hutchinson's, with Nmc CG solves per
 # REML iteration -- the ONLY estimator now; the SLQ alternative is gone, so
 # there is no trace_method to pass.
@@ -54,13 +58,15 @@ iters = args.iters
 nmc = args.nmc
 rep = args.rep
 mode = args.mode
+gene_pct = args.gene_pct
 r = args.r
 
 # Load the GENOTYPE and build the two standardized designs.  MC AI-REML applies
 # ALL THREE genetic kernels MATRIX-FREE straight from them: the additive GRM as
 # K_a B = Z_a(Z_a'B)/m, the dominance GRM as K_d B = Z_d(Z_d'B)/m, and the
-# pooled within-gene epistasis GRM from the G contiguous genes Z_a is split into
-# inside mc_reml.  NO n-by-n GRM is loaded or stored (only the two n-by-m
+# pooled within-gene epistasis GRM from the G contiguous genes the FIRST
+# gene_pct percent of Z_a's columns is split into inside mc_reml (the remaining
+# SNPs are in no gene; K_a and K_d still use all m).  NO n-by-n GRM is loaded or stored (only the two n-by-m
 # designs), which is the whole point of this variant: the _preW pipeline loads a
 # cached dense W here instead.
 #
@@ -83,8 +89,8 @@ Z = additive_design(SNP)
 Zd = dominance_design(SNP)
 
 # Load phenotype (s2a_s2d_s2gxg_s2e order)
-tag = f"{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}_m{m}_G{G}"
-y_path = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/Phenotype/y_{tag}/rep{rep}.csv"
+tag = f"{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}_m{m}_G{G}_gp{gene_pct:g}"
+y_path = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene/Phenotype/y_{tag}/rep{rep}.csv"
 y = pd.read_csv(y_path, header=None).to_numpy().flatten()
 
 # NOTHING IS READ BACK FROM THE PHENOTYPE STEP EXCEPT y.  The realized
@@ -114,7 +120,7 @@ if args.verbose:
           f"columns s2a s2d s2gxg s2e ---", flush=True)
 s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, _, info = MC_REML(
     Z, Zd, y, G, iters=iters, Nmc=nmc, seed=rep, r=r, verbose=args.verbose,
-    A_dtype=args.A_dtype)
+    A_dtype=args.A_dtype, gene_pct=gene_pct)
 elapsed = time.perf_counter() - t_start
 # How many LINEAR OPERATOR APPLIES that fit actually cost.  mc_reml zeroes the
 # counters on entry, so this snapshot is THIS replicate and nothing else -- the
@@ -163,7 +169,7 @@ op_counts = get_op_counts()
 # per-replicate reference to pair against.  The optimizer's diagnostics
 # (converged, rejected steps, components at their bound) go to this job's
 # stdout log only.
-output_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/result/{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}"
+output_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene/result/{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}_gp{gene_pct:g}"
 os.makedirs(output_dir, exist_ok=True)
 filename = f"{output_dir}/rep{rep}.txt"
 with open(filename, 'w') as f:
@@ -171,8 +177,8 @@ with open(filename, 'w') as f:
 
 # Record this replicate's estimation wall-clock time (seconds).  The combine
 # step averages all reps into time/result/timing_<FILENAME>.txt.
-run_tag = f"{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}"
-time_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/time/rep_times/{run_tag}"
+run_tag = f"{mode}_s2a{s2a}_s2d{s2d}_s2gxg{s2gxg}_s2e{s2e}_n{n}m{m}_G{G}_gp{gene_pct:g}"
+time_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene/time/rep_times/{run_tag}"
 os.makedirs(time_dir, exist_ok=True)
 with open(f"{time_dir}/rep{rep}.txt", 'w') as f:
     f.write(f"{elapsed}\n")
@@ -233,7 +239,7 @@ for _op in ("V", "K", "W"):
     _cols = op_counts.get(f"{_op}_columns", 0)
     op_counts[f"{_op}_sec_per_col"] = (
         op_counts.get(f"{_op}_sec", 0.0) / _cols if _cols else 0.0)
-op_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/time/op_counts/{run_tag}"
+op_dir = f"/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene/time/op_counts/{run_tag}"
 os.makedirs(op_dir, exist_ok=True)
 with open(f"{op_dir}/rep{rep}.txt", 'w') as f:
     for key in OP_KEYS:

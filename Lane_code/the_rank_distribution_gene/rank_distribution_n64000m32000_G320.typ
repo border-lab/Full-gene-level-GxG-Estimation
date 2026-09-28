@@ -1,0 +1,3 @@
+#figure(
+image("ContiguousSNP_n64000m32000_G320_thr0.99.pdf", width: 100%),caption: [Distribution of the per-gene rank $r_g$ that explains $99%$ of the variance of $Z_g$ (ContiguousSNP genotype, $n = 64000$, $m = 32000$, $G = 320$ contiguous genes of $m_g = 100$ SNPs). $Z_g$ is the gene's block of the column-standardized additive design, and $r_g$ is the smallest $k$ whose top-$k$ squared singular values reach $0.99$ of their total, $tr(K_g) = n m_g$. Over the $320$ genes, $r_g$ ranges from $12$ to $80$ (mean $32.9$, SD $9.4$); the dashed line is the median, $33$. The $90$th, $95$th and $99$th percentiles are $45$, $48$ and $approx 53$, and only two genes exceed $53$ ($61$ and $80$).]
+) <rankDist>

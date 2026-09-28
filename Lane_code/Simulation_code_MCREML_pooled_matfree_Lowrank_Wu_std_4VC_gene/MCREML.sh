@@ -9,14 +9,14 @@ conda activate tfenv
 # each against their n-by-m design, so let BLAS use the cores allocated to
 # this task.
 #
-# Arguments: 1-11 are positional (n m G s2a s2d s2gxg s2e mode iters nmc r);
-# everything from 12 on is forwarded to Simulate_MCREML.py verbatim, which is
+# Arguments: 1-12 are positional (n m G s2a s2d s2gxg s2e mode iters nmc r
+# gene_pct); everything from 13 on is forwarded to Simulate_MCREML.py verbatim, which is
 # how MCREML_pipeline.sh passes --verbose (possibly empty).
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 
-python3 /home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC/Simulate_MCREML.py \
+python3 /home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene/Simulate_MCREML.py \
     --n $1 --m $2 --G $3 --s2a $4 --s2d $5 --s2gxg $6 --s2e $7 --mode $8 \
     --iters $9 --nmc ${10} \
-    --r ${11:-20} \
-    --rep $SLURM_ARRAY_TASK_ID "${@:12}"
+    --r ${11:-20} --gene_pct ${12} \
+    --rep $SLURM_ARRAY_TASK_ID "${@:13}"

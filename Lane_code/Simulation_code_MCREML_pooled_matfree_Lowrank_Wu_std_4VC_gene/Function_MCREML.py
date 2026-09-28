@@ -58,6 +58,14 @@ import time
 #
 # tr(W) != n: dividing by a scalar fixes only the scale.
 # h_ab pairs ADDITIVE columns; dominance enters through K_d alone.
+#
+# ONLY A LEADING FRACTION OF THE GENOTYPE IS GENES (what this _gene variant
+# adds).  gene_pct (a percent, e.g. 5) marks the FIRST
+# m_W = round(m * gene_pct / 100) SNP columns as genic; split_into_genes cuts
+# those, and only those, into G contiguous genes, so W (simulation), W-hat
+# (estimation) and c-hat are all built from the first m_W SNPs.  The remaining
+# m - m_W SNPs are in no gene and contribute no pair.  K_a and K_d are
+# UNCHANGED: both still use all m SNPs.  gene_pct = 100 is the parent pipeline.
 ####################################################################
 
 
@@ -168,14 +176,35 @@ def dominance_design(real_data, maf_floor=1e-6):
     return _standardize_cols(D)
 
 
-def split_into_genes(Z, G):
-    """Split the m SNP columns of Z into G contiguous gene blocks.
+def n_gene_snps(m, gene_pct):
+    """m_W = round(m * gene_pct / 100): how many LEADING SNPs are genic.
 
-    np.array_split makes the first (m mod G) genes one SNP larger.  K_a does not
-    use this split; only the epistasis kernel does.
+    gene_pct is a percent in (0, 100].  Raises if m_W cannot hold G >= 1 gene
+    with a pair (m_W < 2); split_into_genes / pooled_c catch the G-dependent
+    case where every gene ends up with a single SNP.
     """
-    m = Z.shape[1]
-    return [Z[:, cols] for cols in np.array_split(np.arange(m), G)]
+    if not (0.0 < gene_pct <= 100.0):
+        raise ValueError(f"gene_pct must be in (0, 100], got {gene_pct!r}")
+    m_w = int(round(m * gene_pct / 100.0))
+    if m_w < 2:
+        raise ValueError(f"gene_pct={gene_pct:g}% of m={m} leaves {m_w} genic "
+                         f"SNP(s); need >= 2 for a within-gene pair.")
+    return m_w
+
+
+def split_into_genes(Z, G, gene_pct=100.0):
+    """Split the FIRST m_W = n_gene_snps(m, gene_pct) SNP columns of Z into G
+    contiguous gene blocks.  The other m - m_W columns belong to no gene.
+
+    np.array_split makes the first (m_W mod G) genes one SNP larger.  K_a and
+    K_d do not use this split (they keep all m SNPs); only the epistasis kernel
+    does.  gene_pct = 100 splits every column, as in the parent pipeline.
+    """
+    m_w = n_gene_snps(Z.shape[1], gene_pct)
+    if G > m_w:
+        raise ValueError(f"G={G} genes but only m_W={m_w} genic SNPs "
+                         f"(gene_pct={gene_pct:g}% of m={Z.shape[1]}).")
+    return [Z[:, cols] for cols in np.array_split(np.arange(m_w), G)]
 
 
 # --------------------------------------- standardized GRMs (without GRM)
@@ -537,10 +566,13 @@ def _make_wu(F_list, At, Dst, P, c):
 
 # ------------------------------------------------------------- simulation
 def simulate_Cholesky_4vc(real_data, G, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
-                          stability=1e-10):
+                          gene_pct=100.0, stability=1e-10):
     """Cholesky factors of the three genetic covariances.
 
         La La' = s2a K_a ,  Ld Ld' = s2d K_d ,  Lgxg Lgxg' = s2gxg W_raw/c .
+
+    K_a and K_d use all m SNPs; W uses the G genes cut from the first
+    gene_pct percent of them (split_into_genes).
 
     Returns (La, Ld, Lgxg, w_build_time, c); w_build_time covers the EPISTASIS
     kernel alone, the O(n^2 m) term that dominates this job.
@@ -554,7 +586,7 @@ def simulate_Cholesky_4vc(real_data, G, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
     n, m = Za.shape
 
     # --- epistasis first (the expensive one), then free W -------------------
-    genes = split_into_genes(Za, G)          # several Z, one per gene
+    genes = split_into_genes(Za, G, gene_pct)   # the leading gene_pct% only
 
     # The c-normalization is inside build_W_pooled and inside the timed block;
     # it is one gemm per gene, so the timing barely moves.
@@ -663,8 +695,9 @@ def simulate_phenotype(La, Ld, Lgxg, n, s2a=0.1, s2d=0.1, s2gxg=0.1, s2e=0.7,
 
 
 # ------------------------------------ realized-variance scale factor  c
-def compute_c_pooled(real_data, G):
-    """c-hat from raw dosages: builds Z_a, cuts it into G genes, returns pooled_c.
+def compute_c_pooled(real_data, G, gene_pct=100.0):
+    """c-hat from raw dosages: builds Z_a, cuts its first gene_pct percent into
+    G genes, returns pooled_c.
 
     NOT where the kernels get their divisor -- they call pooled_c directly.
     Here the kernel already carries 1/c-hat, so no post-fit correction is
@@ -672,7 +705,7 @@ def compute_c_pooled(real_data, G):
     columns being standardized.
     """
     Z = additive_design(real_data)
-    genes = split_into_genes(Z, G)
+    genes = split_into_genes(Z, G, gene_pct)
     return pooled_c(genes)
 
 
@@ -881,7 +914,7 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
             eta1=1e-4, eta2=0.99, alpha1=0.25, alpha2=3.5,
             s_init=(0.05, 0.05, 0.05, 0.85),
             seed=None, verbose=False, r=R_DEFAULT,
-            A_dtype='float64'):
+            A_dtype='float64', gene_pct=100.0):
     """Monte-Carlo AI-REML for  V = s2a K_a + s2d K_d + s2gxg W + s2e I, with
     W = W_raw/c applied by its rank-r truncation, optimized as in BOLT-REML
     (Loh et al. 2015, Supplementary Note 3.2-3.5).
@@ -891,9 +924,10 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     this proper REML with an intercept and keeps lam_max(W) off the all-ones
     direction, where most of it otherwise sits.
 
-    Z is the standardized genotype (K_a, and split into G genes for the
-    epistasis setup); Zd is the dominance design (K_d only).  Both are n-by-m
-    and are the only large arrays held.  Because the kernel carries 1/c-hat,
+    Z is the standardized genotype (K_a on all m SNPs; its FIRST gene_pct
+    percent split into G genes for the epistasis setup); Zd is the dominance
+    design (K_d only, all m SNPs).  Both are n-by-m and are the only large
+    arrays held besides At, which scales with the genic m_W alone.  Because the kernel carries 1/c-hat,
     s2gxg is the REALIZED epistasis variance and needs no post-fit correction.
     K_a and K_d are EXACT; only W is truncated, so any error in s2a-hat or
     s2d-hat is sampling or coupling, never operator error.  W-hat is
@@ -990,7 +1024,7 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
     # Timed in two pieces (svd factors incl. c-hat, the fixed-probe products
     # K_i U / W U) plus their total, setup_sec; the At build is setup_A_sec.
     t_setup0 = time.perf_counter()
-    genes = split_into_genes(Z, G)
+    genes = split_into_genes(Z, G, gene_pct)     # the leading gene_pct% only
     F_list, P, c = setup_pooled(genes, r=r)      # c: the normalization divisor
     _add_time('setup_svd', time.perf_counter() - t_setup0)
     # Both routes' state is kept: F_list (Z_g, D_g, Q, lam per gene) for the
@@ -1211,17 +1245,17 @@ def mc_reml(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
 def MC_REML(Z, Zd, y, G, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
             cg_maxiter=1000, seed=None, r=R_DEFAULT, verbose=False,
-            A_dtype='float64'):
+            A_dtype='float64', gene_pct=100.0):
     """Wrapper: returns (s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, AI, info).
 
     SEs from reml_se(AI, Nmc, info['at_bound']).  Nmc_coarse=None gives the
     single-phase fit.  A_dtype sets the dtype of the stored-A W apply
-    (see mc_reml).  info is mc_reml's: converged, n_iters, n_reject, switch_it,
+    (see mc_reml); gene_pct is the leading percent of SNPs that are genes.  info is mc_reml's: converged, n_iters, n_reject, switch_it,
     at_bound.
     """
     s, AI, info = mc_reml(Z, Zd, y, G, iters=iters, Nmc=Nmc,
                           Nmc_coarse=Nmc_coarse, cg_tol=cg_tol,
                           cg_maxiter=cg_maxiter, seed=seed, verbose=verbose,
-                          r=r, A_dtype=A_dtype)
+                          r=r, A_dtype=A_dtype, gene_pct=gene_pct)
     s2a_hat, s2d_hat, s2gxg_hat, s2e_hat = s
     return s2a_hat, s2d_hat, s2gxg_hat, s2e_hat, AI, info

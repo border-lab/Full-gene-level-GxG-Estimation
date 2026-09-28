@@ -11,6 +11,13 @@ MODE=ContiguousSNP
 ITERS=30
 NMC=100                 # FINE phase; mc_reml runs a coarse S=15 phase first
 R=30
+# Percent of the genotype that is GENES: only the FIRST round(M * GENE_PCT/100)
+# SNPs are cut into G contiguous genes and build the epistasis kernel (W in the
+# simulation, W-hat in the fit); the other SNPs are in no gene.  K_a and K_d
+# still use all M SNPs.  100 reproduces the parent pipeline.  Write it the way
+# python's %g prints it (5, 2.5 -- not 5.0): TAG/FILENAME below must match the
+# names the python jobs build.
+GENE_PCT=5
 VERBOSE=--verbose
 MEM=2G
 MEM_CHOL=48G
@@ -24,10 +31,10 @@ NODE=lanec2-4-1          # every job runs on this node only
 # files first.  Usage: bash MCREML_pipeline.sh 2
 START=${1:-1}
 
-DIR=/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC
+DIR=/home/ziyanzha/MOM_within_gene/MCREML_pooled_matfree_Lowrank_Wu_std_4VC_gene
 
-TAG=${MODE}_s2a${S2A}_s2d${S2D}_s2gxg${S2GXG}_s2e${S2E}_n${N}_m${M}_G${G}
-FILENAME=${MODE}_s2a${S2A}_s2d${S2D}_s2gxg${S2GXG}_s2e${S2E}_n${N}m${M}_G${G}
+TAG=${MODE}_s2a${S2A}_s2d${S2D}_s2gxg${S2GXG}_s2e${S2E}_n${N}_m${M}_G${G}_gp${GENE_PCT}
+FILENAME=${MODE}_s2a${S2A}_s2d${S2D}_s2gxg${S2GXG}_s2e${S2E}_n${N}m${M}_G${G}_gp${GENE_PCT}
 
 mkdir -p $DIR/error
 
@@ -53,7 +60,7 @@ JOB1=$(sbatch --parsable \
     --ntasks=1 \
     --cpus-per-task=64 \
     --time=48:00:00 \
-    $DIR/Cholesky.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE)
+    $DIR/Cholesky.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $GENE_PCT)
 echo "Cholesky job: $JOB1"
 DEP="--dependency=afterok:$JOB1"
 fi
@@ -75,7 +82,7 @@ JOB2=$(sbatch --parsable $DEP \
     --cpus-per-task=1 \
     --array=1-50%$ARRAY \
     --time=12:00:00 \
-    $DIR/Phenotype.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE)
+    $DIR/Phenotype.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $GENE_PCT)
 echo "Phenotype job: $JOB2"
 DEP="--dependency=afterok:$JOB2"
 fi
@@ -100,8 +107,8 @@ JOB3=$(sbatch --parsable $DEP \
     --cpus-per-task=1 \
     --array=1-50%$ARRAY \
     --time=48:00:00 \
-    $DIR/MCREML.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $ITERS $NMC $R $VERBOSE)
-echo "MC-AI-REML job: $JOB3  (4 VC: s2a K_a + s2d K_d + s2gxg W + s2e I, W = W_raw/c c-normalized; W apply: low-rank, r=$R; trace estimator: hutchinson, Nmc=$NMC)"
+    $DIR/MCREML.sh $N $M $G $S2A $S2D $S2GXG $S2E $MODE $ITERS $NMC $R $GENE_PCT $VERBOSE)
+echo "MC-AI-REML job: $JOB3  (4 VC: s2a K_a + s2d K_d + s2gxg W + s2e I, W = W_raw/c c-normalized on the first $GENE_PCT% of SNPs; W apply: low-rank, r=$R; trace estimator: hutchinson, Nmc=$NMC)"
 DEP="--dependency=afterok:$JOB3"
 fi
 
@@ -120,7 +127,7 @@ fi
 # The three reductions run independently, each per-rep directory is removed only
 # after its own reduction lands, and combine_code.sh exits non-zero on any
 # failure (the old `&&` chain silently skipped later steps and the cleanups).
-# Only time/average_time.py needs to be on the cluster; the op-count reduction is
+# The timing and op-count reductions are
 # awk inside combine_code.sh, so it needs no python and no conda env.
 JOB4=$(sbatch --parsable $DEP \
     --job-name=combine_mcreml \
