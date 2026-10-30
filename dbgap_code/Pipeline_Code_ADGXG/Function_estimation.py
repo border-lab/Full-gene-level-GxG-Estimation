@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 from scipy.optimize import minimize
-
+import scipy.sparse.linalg as spla
 ####################################################################
 # Function_estimation.py -- MC AI-REML for variance components, matrix-free.
 #
@@ -36,37 +36,44 @@ from scipy.optimize import minimize
 
 # ------------------------------------------------------------------ covariates
 def make_projector(X):
-    """B -> M B with M = I - X (X'X)^-1 X', for (n,) or (n, k) arrays.
+    """M = I - X (X'X)^-1 X' as a LinearOperator: M @ B for (n,) or (n, k) arrays.
 
     Uses an orthonormal basis Q of col(X) (QR), so M B = B - Q (Q' B): O(n p k).
+    M is symmetric, so rmatvec = matvec.
     """
-    Q, _ = np.linalg.qr(np.asarray(X, dtype=np.float64))
-    return lambda B: B - Q @ (Q.T @ B)
-
+    X = np.asarray(X, dtype=np.float64)
+    Q, _ = np.linalg.qr(X)
+    f = lambda B: B - Q @ (Q.T @ B)
+    n = X.shape[0]
+    return spla.LinearOperator((n, n), matvec=f, matmat=f, rmatvec=f, rmatmat=f, dtype=np.float64)
 
 # ------------------------------------------------------------------ linear algebra
-def _cg_batched(matvec, Bmat, x0=None, tol=1e-6, maxiter=1000):
+
+def _cg_batched(V, Bmat, x0=None, tol=1e-6, maxiter=1000):
     """Conjugate gradient for the SPD system V X = Bmat.
 
-    matvec : X -> V X, (n, c) in and out.
+    V      : (n, n) LinearOperator (or anything with V @ X), applied to (n, c) blocks.
     Bmat   : (n, c) right-hand sides, solved together with per-column scalars,
              so one V-pass advances every column.
-    x0     : (n, c) warm start.
+    x0     : (n, c) warm start; None (or all zeros) starts from X = 0.
 
-    Returns (X, ok).  ok is False when a column meets a search direction with
-    p'Vp <= 0: V is not positive definite here, CG is not a valid solver, and
-    X is NOT a solution.  Costs 1 + (iterations taken) applies of matvec.
+    Returns (X, ok).  ok is False, and X is NOT a solution, when
+      - a column meets a search direction with p'Vp <= 0: V is not positive
+        definite here and CG is not a valid solver, or
+      - maxiter iterations pass without every column reaching tol.
+    Costs (iterations taken) products V @ (n, c) block, plus one more for a
+    nonzero x0 (the initial residual).
     """
     n, c = Bmat.shape
     X = np.zeros((n, c)) if x0 is None else x0.copy()
-    R = Bmat - matvec(X)
+    R = Bmat.copy() if x0 is None or not np.any(x0) else Bmat - V @ X
     P = R.copy()
     rs_old = np.sum(R * R, axis=0)
     b_norm = np.sqrt(np.sum(Bmat * Bmat, axis=0))
     b_norm[b_norm == 0.0] = 1.0
 
     for _ in range(maxiter):
-        VP = matvec(P)
+        VP = V @ P
         pVp = np.sum(P * VP, axis=0)
         if np.any((pVp <= 0.0) & (rs_old > 0.0)):
             return X, False
@@ -79,8 +86,9 @@ def _cg_batched(matvec, Bmat, x0=None, tol=1e-6, maxiter=1000):
         beta = rs_new / rs_old
         P = R + beta * P
         rs_old = rs_new
+    else:
+        return X, False                      
     return X, True
-
 
 # ------------------------------------------------------------------ standard errors
 def reml_se(AI, Nmc, at_bound=None):
@@ -278,8 +286,8 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
            reml_se(AI, Nmc, info['at_bound']).
     info : dict -- converged, n_iters, n_reject, switch_it, at_bound.
     """
-    Mproj = make_projector(X)
-    y = Mproj(np.asarray(y, dtype=float).reshape(-1, 1))[:, 0]
+    M = make_projector(X)
+    y = (M @ np.asarray(y, dtype=float).reshape(-1, 1))[:, 0]
     n = y.shape[0]
     if callable(kernels):
         kern_all = kernels
@@ -289,11 +297,11 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
     def kall(B):
         """[M K_1 M B, ..., M K_K M B], all kernels from ONE call of kern_all."""
-        return [Mproj(o) for o in kern_all(Mproj(B))]
+        return [M @ o for o in kern_all(M @ B)]
 
     rng = np.random.default_rng(seed)
     # Drawn ONCE at FULL width; the coarse phase reads U[:, :Nmc_coarse].
-    U = Mproj(rng.choice([-1.0, 1.0], size=(n, Nmc)))
+    U = M @ rng.choice([-1.0, 1.0], size=(n, Nmc))
     KU = kall(U)                                    # K_i U for the fixed probes, once
     K = len(KU)                                     # number of genetic components
     k = K + 1
@@ -322,12 +330,12 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
     def vmat(s_at, B):
         """V B = s_e M B + sum_i s_i M K_i M B, all kernels from ONE call."""
-        MB = Mproj(B)
+        MB = M @ B
         outs = kern_all(MB)
         comb = s_at[0] * outs[0]
         for i in range(1, K):
             comb = comb + s_at[i] * outs[i]
-        return s_at[-1] * MB + Mproj(comb)
+        return s_at[-1] * MB + M @ comb
 
     def eval_grad_ai(s_at):
         """Score and average information at s_at, at the CURRENT n_probe.
@@ -335,11 +343,12 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
         sols are the CG solutions at s_at.  They become the warm starts only via
         commit(sols), i.e. once s_at is accepted: a rejected trial point (e.g. a
         near-singular V) must not leave its solutions as later starting points."""
-        mv = lambda B: vmat(s_at, B)
+        f = lambda B: vmat(s_at, B)
+        V = spla.LinearOperator((n, n), matvec=f, matmat=f, rmatvec=f, rmatmat=f, dtype=np.float64)
 
         # x = V^{-1} y and the probe solves V^{-1} U: ONE batched, warm-started CG
         Uc_ = U[:, :n_probe]
-        Sol, ok = _cg_batched(mv, np.hstack([yc, Uc_]),
+        Sol, ok = _cg_batched(V, np.hstack([yc, Uc_]),
                               x0=np.hstack([xbuf, Pbuf[:, :n_probe]]),
                               tol=cg_tol, maxiter=cg_maxiter)
         if not ok:
@@ -348,7 +357,7 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
         x_ = X_y[:, 0]
 
         # score_i = 0.5 (x' K_i x - tr(P K_i)), traces by Hutchinson
-        Kx = kall(x_) + [Mproj(x_)]
+        Kx = kall(x_) + [M @ x_]
         KUs = KU + [Uc_]
         sc = np.array([0.5 * (x_ @ Kx[i]
                               - np.mean(np.sum(Psol * KUs[i][:, :n_probe], axis=0)))
@@ -356,7 +365,7 @@ def mc_reml(kernels, y, X, iters=30, Nmc=100, Nmc_coarse=15, cg_tol=1e-6,
 
         # average information: AI_ij = 0.5 (K_i x)' V^{-1} (K_j x)
         KX = np.column_stack(Kx)
-        G_sol, ok = _cg_batched(mv, KX, x0=Gbuf, tol=cg_tol, maxiter=cg_maxiter)
+        G_sol, ok = _cg_batched(V, KX, x0=Gbuf, tol=cg_tol, maxiter=cg_maxiter)
         if not ok:
             return None, None, False, None
         ai = 0.5 * (KX.T @ G_sol)

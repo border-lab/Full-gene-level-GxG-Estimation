@@ -69,9 +69,9 @@ if 'GxG' in components:
 
 def K_all(B):
     """[K_A B, K_D B, K_GxG B] for the requested components, in that order."""
-    out = K_AD(B) if K_AD is not None else []
+    out = [K @ B for K in K_AD] if K_AD is not None else []
     if K_gxg is not None:
-        out.append(K_gxg(B))
+        out.append(K_gxg @ B)
     return out
 
 

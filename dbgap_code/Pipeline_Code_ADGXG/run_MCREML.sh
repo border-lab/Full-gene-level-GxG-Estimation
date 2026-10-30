@@ -13,6 +13,6 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export PYTHONUNBUFFERED=1      # write the log as it goes
 
-CODE=/cluster-home/ziyanzha/Pipeline_Code_update
+CODE=/cluster-home/ziyanzha/Pipeline_Code_ADGXG
 cd $CODE                       # so Python finds Function_input / Function_estimation
 python3 $CODE/run_MCREML.py --threads ${SLURM_CPUS_PER_TASK:-1} "$@"

@@ -13,9 +13,9 @@
 set -u
 
 # ------------------------------------------------------------- parameters
-TRAIT=body_BMIz          # name of $PHEN_DIR/<TRAIT>.phen
-CHROMS="22"              # all chromosomes: CHROMS="$(seq 1 22)"
-COMPONENTS="A D GxG"     # subset of A D GxG, in this order (E is always included)
+TRAIT=mental_NEUROTICISM          # name of $PHEN_DIR/<TRAIT>.phen
+CHROMS="$(seq 1 22)"     # all chromosomes: CHROMS="$(seq 1 22)"
+COMPONENTS="A"     # subset of A D GxG, in this order (E is always included)
 NMC=100                  # Hutchinson probes, fine phase
 NMC_COARSE=15            # Hutchinson probes, coarse phase
 SEED=1
@@ -28,10 +28,10 @@ VERBOSE=--verbose        # set to "" to drop the AI-REML trace
 # (whole genome: MEM=180G, CPUS=32, NODE=compute-0-30, TIME=7-00:00:00)
 # CPUS is also the number of threads for the kernel products.
 PARTITION=dbgap
-CPUS=8
-MEM=32G
-TIME=24:00:00
-NODE=""                  # pin a node, e.g. NODE=compute-0-30; "" = any node
+CPUS=32
+MEM=180G
+TIME=4-00:00:00
+NODE=compute-0-30                  # pin a node, e.g. NODE=compute-0-30; "" = any node
 
 # ------------------------------------------------------------------- data
 # Compute-node paths.  GENO_DIR holds ukb_imp_chr{c}_v3.{pgen,pvar,psam};
@@ -44,7 +44,7 @@ GENE_DIR=/dbgap/martinzh_ukb16549/ziyanzha/Genotype/UKBimp_337K_HM3/gxg_gene_tab
 # ------------------------------------------------------------------ paths
 # CODE is the HEAD-NODE path: sbatch reads run_MCREML.sh here at submit
 # time.  DIR exists on compute nodes only.
-CODE=/home/ziyanzha/Pipeline_Code_update
+CODE=/home/ziyanzha/Pipeline_Code_ADGXG
 DIR=/dbgap/martinzh_ukb16549/ziyanzha/results/MCREML_real/$(basename $GENO_DIR)
 LOG=$DIR/logs
 
@@ -57,7 +57,7 @@ RUN=${TRAIT}_${CHR}_${COMP}
 
 # The log directory lives on the compute nodes and must exist before the job
 # starts, or Slurm cannot open the job's output file.
-if srun -p $PARTITION --chdir=/tmp mkdir -p $LOG; then
+if srun -p $PARTITION --mem=1G -c 1 --chdir=/tmp mkdir -p $LOG; then
     :
 else
     echo "ERROR: could not create $LOG on a compute node" >&2
